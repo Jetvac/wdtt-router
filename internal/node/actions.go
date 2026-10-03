@@ -28,16 +28,18 @@ const xuiURL = "https://raw.githubusercontent.com/MHSanaei/3x-ui/v3.8.5/install.
 const xuiSHA = "4e3fe7fe00ef8e904ce6a0e9c36fd8a0c7179fe5e786f23e31801aee84c6347d"
 
 type Request struct {
-	Action      string             `json:"action"`
-	Password    string             `json:"password,omitempty"`
-	VKLink      string             `json:"vk_link,omitempty"`
-	PublicHost  string             `json:"public_host,omitempty"`
-	DTLSPort    int                `json:"dtls_port,omitempty"`
-	WGPort      int                `json:"wg_port,omitempty"`
-	Mesh        *MeshConfig        `json:"mesh,omitempty"`
-	Firewall    *FirewallConfig    `json:"firewall,omitempty"`
-	VLESS       *VLESSConfig       `json:"vless,omitempty"`
-	VLESSClient *VLESSClientConfig `json:"vless_client,omitempty"`
+	Action       string             `json:"action"`
+	SnapshotID   string             `json:"snapshot_id,omitempty"`
+	ManagementIP string             `json:"management_ip,omitempty"`
+	Password     string             `json:"password,omitempty"`
+	VKLink       string             `json:"vk_link,omitempty"`
+	PublicHost   string             `json:"public_host,omitempty"`
+	DTLSPort     int                `json:"dtls_port,omitempty"`
+	WGPort       int                `json:"wg_port,omitempty"`
+	Mesh         *MeshConfig        `json:"mesh,omitempty"`
+	Firewall     *FirewallConfig    `json:"firewall,omitempty"`
+	VLESS        *VLESSConfig       `json:"vless,omitempty"`
+	VLESSClient  *VLESSClientConfig `json:"vless_client,omitempty"`
 }
 
 type Result struct {
@@ -173,6 +175,8 @@ func Apply(ctx context.Context, r Request) (Result, error) {
 			return Result{}, errors.New("firewall config required")
 		}
 		return ApplyFirewall(ctx, *r.Firewall)
+	case "recovery.restore":
+		return RestoreSnapshot(ctx, r.SnapshotID, r.ManagementIP)
 	default:
 		return Result{}, fmt.Errorf("unsupported action: %s", r.Action)
 	}

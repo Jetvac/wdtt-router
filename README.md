@@ -68,6 +68,8 @@ sudo systemctl status wdtt-panel wdtt cloudflare-mesh x-ui
 
 В панели доступны «Операции», «Журнал» и диагностический JSON без сохранённых секретов. Приложение удаляет события, аудит и завершённые задания старше 24 часов. Подробности о проверках, таймере отката и ручном восстановлении: [docs/recovery.md](docs/recovery.md). Системный журнал `journald` регулируется настройками ОС отдельно.
 
+На странице «Операции» можно откатить последнее изменение маршрутизации или firewall либо выбрать конкретное изменение из истории. Снимки доступны для действий, подтверждённых версией 0.1.1 и новее. Возврат прямого Mesh маршрута для WDTT выполняется на странице «VLESS».
+
 ## Обновление и удаление
 
 ```bash
@@ -90,3 +92,4 @@ bash -n install.sh
 CI проверяет тесты, vet, форматирование и синтаксис установщика. Тег вида `vX.Y.Z` собирает Linux amd64/arm64 архивы и контрольные суммы в GitHub Release. Для локальной проверки установщика можно задать `WDTT_PANEL_ARTIFACT_DIR` с архивом и `SHA256SUMS`.
 
 Описание устройства: [architecture](docs/architecture.md), [network flow](docs/network-flow.md), [security](docs/security.md), [recovery](docs/recovery.md). Изменения версий: [CHANGELOG](CHANGELOG.md).
+Результаты проверки на временных VPS: [docs/test-results.md](docs/test-results.md).

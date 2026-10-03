@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -235,6 +236,24 @@ func (a *App) action(w http.ResponseWriter, r *http.Request, user auth.Session) 
 			return
 		}
 	}
+	if req.Action == "recovery.restore" {
+		if !regexp.MustCompile(`^[a-f0-9]{24}$`).MatchString(req.SnapshotID) {
+			apiError(w, 400, "Invalid snapshot ID")
+			return
+		}
+		var found int
+		err := a.Store.DB.QueryRow(`SELECT 1 FROM jobs WHERE server_id=? AND snapshot_id=? AND status='success' AND action IN ('routing.apply','firewall.apply','recovery.restore') AND result LIKE '%(snapshot saved)' LIMIT 1`, id, req.SnapshotID).Scan(&found)
+		if err != nil {
+			apiError(w, 404, "Committed snapshot not found for this server")
+			return
+		}
+		peer, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			apiError(w, 400, "Could not identify your address")
+			return
+		}
+		req.ManagementIP = peer
+	}
 	data, _ := json.Marshal(req)
 	enc, err := a.Store.Seal(string(data))
 	if err != nil {
@@ -254,7 +273,7 @@ func (a *App) action(w http.ResponseWriter, r *http.Request, user auth.Session) 
 
 func allowedAction(action string) bool {
 	switch action {
-	case "status", "wdtt.import", "wdtt.install", "wdtt.reconfigure", "wdtt.start", "wdtt.stop", "wdtt.restart", "wdtt.uninstall", "xui.install", "xui.credentials", "xui.start", "xui.stop", "xui.restart", "xui.warp.enable", "xui.warp.disable", "mesh.install", "mesh.uninstall", "routing.apply", "firewall.apply", "vless.enable", "vless.disable", "vless.repair", "vless.client.enable", "vless.client.disable":
+	case "status", "wdtt.import", "wdtt.install", "wdtt.reconfigure", "wdtt.start", "wdtt.stop", "wdtt.restart", "wdtt.uninstall", "xui.install", "xui.credentials", "xui.start", "xui.stop", "xui.restart", "xui.warp.enable", "xui.warp.disable", "mesh.install", "mesh.uninstall", "routing.apply", "firewall.apply", "recovery.restore", "vless.enable", "vless.disable", "vless.repair", "vless.client.enable", "vless.client.disable":
 		return true
 	}
 	return false

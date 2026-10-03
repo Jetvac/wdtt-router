@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/auth"
@@ -106,11 +105,12 @@ func (a *App) runNext(ctx context.Context) {
 }
 
 func redactError(s string) string {
-	// Errors from the node are deliberately structured without secrets. Keep a
-	// final guard against accidental URL/credential content from dependencies.
-	if i := strings.Index(s, "wdtt://"); i >= 0 {
-		s = s[:i] + "<redacted link>"
-	}
+	// Node errors should be structured without secrets. These guards also cover
+	// unexpected text from SSH, third-party installers, and HTTP libraries.
+	s = regexp.MustCompile(`(?i)(?:wdtt|vless)://[^\s"'<>]+`).ReplaceAllString(s, "<redacted link>")
+	s = regexp.MustCompile(`cfut_[A-Za-z0-9_-]+`).ReplaceAllString(s, "<redacted token>")
+	s = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*`).ReplaceAllString(s, "Bearer <redacted token>")
+	s = regexp.MustCompile(`(?i)\b(?:api[_-]?token|password|private[_-]?key)\s*[:=]\s*[^,\s;]+`).ReplaceAllString(s, "<redacted credential>")
 	return trim(s, 1800)
 }
 
@@ -181,6 +181,9 @@ func (a *App) execute(ctx context.Context, serverID int64, action, cipherText st
 		}
 		if err := a.commit(ctx, s, result.RecoveryID); err != nil {
 			return "", fmt.Errorf("could not cancel recovery timer: %w", err)
+		}
+		if action == "routing.apply" || action == "firewall.apply" || action == "recovery.restore" {
+			result.Message += " (snapshot saved)"
 		}
 	}
 	if len(result.Secret) > 0 {
