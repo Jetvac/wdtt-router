@@ -38,6 +38,7 @@ type App struct {
 	ListenAddr    string
 	logger        *log.Logger
 	loginMu       sync.Mutex
+	updateMu      sync.Mutex
 	loginFailures map[string][]time.Time
 }
 

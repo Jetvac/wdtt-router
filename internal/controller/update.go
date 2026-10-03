@@ -95,6 +95,12 @@ func (a *App) scheduleUpdate(w http.ResponseWriter, r *http.Request, _ auth.Sess
 	if !decode(w, r, &body) {
 		return
 	}
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
+	if a.updateInProgress() {
+		apiError(w, 409, "Application update is already running")
+		return
+	}
 	var tag, target string
 	switch body.Mode {
 	case "update":
@@ -171,6 +177,19 @@ func (a *App) scheduleUpdate(w http.ResponseWriter, r *http.Request, _ auth.Sess
 		_ = os.WriteFile(filepath.Join(a.DataDir, "last-app-update.json"), b, 0600)
 	}
 	writeJSON(w, 202, last)
+}
+
+func (a *App) updateInProgress() bool {
+	b, err := os.ReadFile(filepath.Join(a.DataDir, "last-app-update.json"))
+	if err != nil {
+		return false
+	}
+	var last panelUpdateState
+	if json.Unmarshal(b, &last) != nil || last.Target == a.Version {
+		return false
+	}
+	started, err := time.Parse(time.RFC3339, last.StartedAt)
+	return err == nil && time.Since(started) < 5*time.Minute
 }
 
 func downloadReleaseAsset(ctx context.Context, tag, name, dir string) error {
