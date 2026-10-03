@@ -34,6 +34,8 @@ type App struct {
 	SSH           transport.SSH
 	DataDir       string
 	BinaryPath    string
+	Version       string
+	ListenAddr    string
 	logger        *log.Logger
 	loginMu       sync.Mutex
 	loginFailures map[string][]time.Time
@@ -75,6 +77,7 @@ func Initialize(dataDir, publicHost string) (string, string, error) {
 func (a *App) Close() error { return a.Store.Close() }
 
 func (a *App) Serve(ctx context.Context, addr string) error {
+	a.ListenAddr = addr
 	var count int
 	if err := a.Store.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		return err
@@ -187,6 +190,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/cloudflare/deploy", a.withAuth(a.queueCloudflareDeploy, true))
 	mux.HandleFunc("GET /api/cloudflare/resources", a.withAuth(a.cloudflareResources, false))
 	mux.HandleFunc("GET /api/diagnostics", a.withAuth(a.diagnostics, false))
+	mux.HandleFunc("GET /api/update", a.withAuth(a.updateStatus, false))
+	mux.HandleFunc("POST /api/update", a.withAuth(a.scheduleUpdate, true))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")

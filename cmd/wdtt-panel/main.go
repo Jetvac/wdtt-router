@@ -59,6 +59,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		app.Version = version
 		defer app.Close()
 		return app.Serve(ctx, *listen)
 	case "status":

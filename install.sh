@@ -39,7 +39,7 @@ trap cleanup EXIT
 
 usage() {
   cat <<'USAGE'
-Usage: install.sh [install|update|repair|uninstall] [--port PORT] [--public-host IP_OR_DNS] [--purge]
+Usage: install.sh [install|update|rollback|repair|uninstall] [--port PORT] [--public-host IP_OR_DNS] [--purge]
 
 The first install prints one-time login credentials. Updates back up the old
 binary and keep data in /var/lib/wdtt-panel. Uninstall keeps data unless --purge.
@@ -59,7 +59,7 @@ done
 
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 [[ $PORT =~ ^[0-9]+$ && $PORT -ge 1 && $PORT -le 65535 ]] || { echo 'Invalid port.' >&2; exit 2; }
-case "$MODE" in install|update|repair|uninstall) ;; *) usage >&2; exit 2 ;; esac
+case "$MODE" in install|update|rollback|repair|uninstall) ;; *) usage >&2; exit 2 ;; esac
 
 if [[ $MODE == install && -f $DATA_DIR/state.db ]]; then MODE=update; fi
 if [[ $MODE == update && ! -f $DATA_DIR/state.db ]]; then
@@ -78,6 +78,48 @@ if [[ $MODE == uninstall ]]; then
   fi
   echo 'WDTT panel uninstalled. WDTT, Mesh, 3x-ui, and node state were not changed.'
   exit 0
+fi
+
+restore_panel_state() {
+  local source=$1 name
+  rm -f -- "$DATA_DIR/state.db" "$DATA_DIR/state.db-wal" "$DATA_DIR/state.db-shm" || return
+  for name in state.db state.db-wal state.db-shm master.key; do
+    if [[ -f $source/$name ]]; then cp -p -- "$source/$name" "$DATA_DIR/$name" || return; fi
+  done
+  if [[ -f $source/wdtt-panel.service ]]; then
+    cp -p -- "$source/wdtt-panel.service" "$UNIT" || return
+  fi
+}
+
+if [[ $MODE == rollback ]]; then
+  [[ -x ${BIN}.previous && -f $DATA_DIR/last-update-backup ]] || { echo 'No previous panel version is available.' >&2; exit 1; }
+  IFS= read -r BACKUP_DIR < "$DATA_DIR/last-update-backup"
+  case "$BACKUP_DIR" in "$DATA_DIR"/backups/*) ;; *) echo 'Invalid backup path.' >&2; exit 1 ;; esac
+  [[ -f $BACKUP_DIR/state.db && -f $BACKUP_DIR/master.key && -f $BACKUP_DIR/wdtt-panel.service ]] || { echo 'Application backup is incomplete.' >&2; exit 1; }
+  tmp=$(mktemp -d)
+  install -m 0755 "$BIN" "$tmp/current-bin"
+  for name in state.db state.db-wal state.db-shm master.key; do
+    if [[ -f $DATA_DIR/$name ]]; then cp -p -- "$DATA_DIR/$name" "$tmp/$name"; fi
+  done
+  if [[ -f $UNIT ]]; then cp -p -- "$UNIT" "$tmp/wdtt-panel.service"; fi
+  systemctl stop wdtt-panel.service
+  if install -m 0755 "${BIN}.previous" "${BIN}.next" &&
+     mv -f -- "${BIN}.next" "$BIN" &&
+     restore_panel_state "$BACKUP_DIR" &&
+     systemctl daemon-reload &&
+     systemctl start wdtt-panel.service &&
+     systemctl is-active --quiet wdtt-panel.service; then
+    rm -f -- "$DATA_DIR/last-update-backup"
+    echo "Panel rollback complete. Service: systemctl status wdtt-panel"
+    exit 0
+  fi
+  install -m 0755 "$tmp/current-bin" "${BIN}.next"
+  mv -f -- "${BIN}.next" "$BIN"
+  restore_panel_state "$tmp"
+  systemctl daemon-reload
+  systemctl start wdtt-panel.service
+  echo 'Rollback failed; current panel version restored.' >&2
+  exit 1
 fi
 
 if [[ $MODE == repair ]]; then
@@ -159,6 +201,10 @@ systemctl restart wdtt-panel.service
 if ! systemctl is-active --quiet wdtt-panel.service; then
   echo 'Panel failed to start; see systemctl status wdtt-panel.' >&2
   exit 1
+fi
+if [[ $MODE == update && -n $BACKUP_DIR ]]; then
+  printf '%s\n' "$BACKUP_DIR" > "$DATA_DIR/last-update-backup"
+  chmod 0600 "$DATA_DIR/last-update-backup"
 fi
 UPDATE_STOPPED=0
 echo "Panel URL: https://${PUBLIC_HOST}:${PORT}/"
