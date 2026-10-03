@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>WDTT Mesh Control Panel</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="login-screen" class="login-screen" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand brand-login"><span class="brand-mark"><i></i><i></i><i></i></span><span><strong>WDTT</strong><small>Mesh Control Panel</small></span></div>
+      <h1>Вход в панель</h1>
+      <p>Управление узлами и маршрутизацией WDTT Mesh.</p>
+      <label>Имя пользователя<input name="username" autocomplete="username" required value="admin"></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="button primary full" type="submit">Войти</button>
+      <div id="login-error" class="form-error" role="alert"></div>
+    </form>
+  </div>
+  <div id="shell" class="shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark"><i></i><i></i><i></i></span><span><strong>WDTT</strong><small>Mesh Control Panel</small></span></div>
+      <nav id="nav" aria-label="Разделы">
+        <button data-view="overview" class="active"><span class="nav-icon">⌂</span>Обзор</button>
+        <button data-view="servers"><span class="nav-icon">▤</span>Серверы</button>
+        <button data-view="chains"><span class="nav-icon">◇</span>Цепочки</button>
+        <button data-view="wdtt"><span class="nav-icon">◎</span>WDTT</button>
+        <button data-view="mesh"><span class="nav-icon">⬡</span>Mesh</button>
+        <button data-view="vless"><span class="nav-icon">⟡</span>VLESS</button>
+        <button data-view="xui"><span class="nav-icon">▣</span>3x-ui</button>
+        <button data-view="routing"><span class="nav-icon">⇄</span>Маршрутизация</button>
+        <button data-view="firewall"><span class="nav-icon">⬟</span>Firewall</button>
+        <button data-view="jobs"><span class="nav-icon">☷</span>Операции</button>
+        <button data-view="events"><span class="nav-icon">☰</span>Журнал</button>
+        <button data-view="diagnostics"><span class="nav-icon">▧</span>Диагностика</button>
+        <button data-view="settings"><span class="nav-icon">⚙</span>Настройки</button>
+      </nav>
+      <div class="sidebar-footer">Состояние сети проверяется отдельно от состояния сервисов.</div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><button id="menu-button" class="menu-button" aria-label="Открыть меню">☰</button><div><h1 id="page-title">Обзор цепочки</h1><p id="page-subtitle">Текущее состояние компонентов и последних операций</p></div><div class="topbar-actions"><span id="clock"></span><button id="account-button" class="account-button" type="button"><span class="avatar">A</span><span id="username">admin</span></button><button id="logout-button" class="text-button" type="button">Выйти</button></div></header>
+      <main id="content" tabindex="-1"></main>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</body>
+</html>

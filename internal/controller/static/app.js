@@ -1,0 +1,149 @@
+const $ = (selector) => document.querySelector(selector);
+const state = { csrf: '', username: '', view: 'overview', servers: [], jobs: [], chains: [], events: [], selected: null, cloudflare: null, cloudflareResources: [] };
+const titles = {
+  overview: ['Обзор цепочки', 'Текущее состояние компонентов и последних операций'],
+  servers: ['Серверы', 'Подключение и состояние узлов'], chains: ['Цепочки', 'Порядок узлов для прохождения трафика'],
+  wdtt: ['WDTT', 'Установка и управление сервисом'], mesh: ['Cloudflare Mesh', 'Проверка маршрутов и подключение узлов'],
+  vless: ['VLESS', 'Приватный вход на выходном узле Mesh'], xui: ['3x-ui', 'Панель прокси на выбранном сервере'],
+  routing: ['Маршрутизация', 'Выборочное направление трафика WDTT'], firewall: ['Firewall', 'Правила доступа на узлах'],
+  jobs: ['Операции', 'Ход выполнения и результаты'], events: ['Журнал', 'События за последние 24 часа'],
+  diagnostics: ['Диагностика', 'Состояние и пакет для анализа'], settings: ['Настройки', 'Учетная запись и параметры панели']
+};
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function date(value) { if (!value) return '—'; const d = new Date(value); return Number.isNaN(d.getTime()) ? esc(value) : d.toLocaleString('ru-RU'); }
+function observed(server) { try { return typeof server.observed === 'string' ? JSON.parse(server.observed) : server.observed || {}; } catch { return {}; } }
+function status(label, ok, warning=false) { return `<span class="status ${ok ? 'ok' : warning ? 'warn' : ''}">${esc(label)}</span>`; }
+function panel(title, description, body) { return `<section class="panel"><h2>${esc(title)}</h2>${description ? `<p class="description">${esc(description)}</p>` : ''}${body}</section>`; }
+function empty(message) { return `<div class="empty">${esc(message)}</div>`; }
+function notice(title, body, kind='blue') { return `<div class="notice ${kind}"><span class="notice-symbol">${kind==='green'?'✓':kind==='blue'?'i':'!'}</span><div><strong>${esc(title)}</strong><p>${esc(body)}</p></div></div>`; }
+function serverSelect(name='server_id') { return `<select name="${name}" required><option value="">Выберите сервер</option>${state.servers.map(s=>`<option value="${s.id}" ${s.id===state.selected?'selected':''}>${esc(s.name)} (${esc(s.host)})</option>`).join('')}</select>`; }
+function roleSelect(name, role) { return `<select name="${name}" required><option value="">Выберите сервер</option>${state.servers.filter(s=>s.role===role).map(s=>`<option value="${s.id}">${esc(s.name)} (${esc(s.host)})</option>`).join('')}</select>`; }
+async function api(path, options={}) {
+  const headers = { Accept:'application/json', ...options.headers };
+  if (options.body && typeof options.body !== 'string') { headers['Content-Type']='application/json'; options.body=JSON.stringify(options.body); }
+  if (options.method && options.method !== 'GET') headers['X-CSRF-Token']=state.csrf;
+  const response = await fetch(path, { credentials:'same-origin', ...options, headers });
+  if (response.status===401 && path!=='/api/login') { showLogin(); throw new Error('Сеанс завершен'); }
+  let data; try { data=await response.json(); } catch { throw new Error(`Ошибка ответа сервера (${response.status})`); }
+  if (!response.ok) throw new Error(data.error || `Ошибка ${response.status}`);
+  return data;
+}
+function toast(message) { const element=$('#toast'); element.textContent=message; element.classList.add('show'); clearTimeout(toast.timer); toast.timer=setTimeout(()=>element.classList.remove('show'),4500); }
+function showLogin() { $('#shell').hidden=true; $('#login-screen').hidden=false; state.csrf=''; $('#login-form [name=password]').value=''; }
+function showShell() { $('#login-screen').hidden=true; $('#shell').hidden=false; $('#username').textContent=state.username; }
+async function refresh() {
+  const [servers,jobs,chains,events,cloudflare,cloudflareResources] = await Promise.all([
+    api('/api/servers'),api('/api/jobs'),api('/api/chains'),api('/api/events'),api('/api/cloudflare'),api('/api/cloudflare/resources')
+  ]);
+  Object.assign(state,{servers,jobs,chains,events,cloudflare,cloudflareResources});
+  if (state.selected && !servers.some(s=>s.id===state.selected)) state.selected=null;
+}
+async function navigate(view, reload=true) {
+  if (!titles[view]) view='overview';
+  state.view=view;
+  $('#page-title').textContent=titles[view][0]; $('#page-subtitle').textContent=titles[view][1];
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  $('.sidebar').classList.remove('open');
+  if (reload) { try { await refresh(); } catch(error) { toast(error.message); } }
+  $('#content').innerHTML=render(view);
+}
+function serverTable(list=state.servers) {
+  if (!list.length) return empty('Серверы пока не добавлены.');
+  return `<div class="table-wrap"><table><thead><tr><th>Узел</th><th>Роль</th><th>WDTT</th><th>Mesh</th><th>VLESS</th><th>3x-ui</th><th>Проверен</th><th></th></tr></thead><tbody>${list.map(s=>{
+    const o=observed(s), mesh=o.mesh_container==='running' && Boolean(o.mesh_ip);
+    const vlessLabel=o.vless_client_enabled?(o.vless_client_ready?'клиент':'ошибка клиента'):(o.vless_enabled?(o.vless_ready&&o.vless_user_active?'вход':'ошибка входа'):'выключен');
+    const vlessOK=o.vless_client_enabled?o.vless_client_ready:(o.vless_ready&&o.vless_user_active);
+    const xuiLabel=(o.xui_service||'не установлен')+(o.xui_warp_enabled?(o.xui_warp_ready?' · WARP':' · WARP ошибка'):'');
+    return `<tr><td><span class="server-name"><span class="server-glyph">▤</span><span><strong>${esc(s.name)}</strong><br><span class="muted">${esc(s.host)}</span></span></span></td><td>${esc(s.role)}</td><td>${status(o.wdtt_service||'не проверен',o.wdtt_service==='active')}</td><td>${status(mesh?'подключен':o.mesh_container||'не установлен',mesh)}</td><td>${status(vlessLabel,vlessOK)}</td><td>${status(xuiLabel,o.xui_service==='active'&&(!o.xui_warp_enabled||o.xui_warp_ready))}</td><td>${date(s.last_seen)}</td><td><button class="button tiny" data-inspect="${s.id}">Открыть</button></td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function jobTable(limit=state.jobs.length) {
+  const list=state.jobs.slice(0,limit); if (!list.length) return empty('Операций пока нет.');
+  return `<div class="table-wrap"><table><thead><tr><th>№</th><th>Узел</th><th>Действие</th><th>Состояние</th><th>Время</th><th>Результат</th></tr></thead><tbody>${list.map(j=>`<tr><td>${j.id}</td><td>${esc(state.servers.find(s=>s.id===j.server_id)?.name||j.server_id)}</td><td>${esc(j.action)}</td><td>${status(j.status,j.status==='success',j.status==='queued'||j.status==='running')}</td><td>${date(j.updated_at)}</td><td>${esc(j.result||j.progress||'—')}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function overview() {
+  const ingress=state.servers.find(s=>s.role==='ingress'), egress=state.servers.find(s=>s.role==='egress');
+  const chain=state.chains[0]; const nodes=chain?.desired?.nodes || [];
+  const flow=[['Клиент','Трафик WDTT'],[ingress?.name||'Входной узел','WDTT / Mesh'],[nodes.length>2?'Промежуточные узлы':'Cloudflare Mesh',nodes.length>2?`${nodes.length-2} узл.`:'Транспорт'],[egress?.name||'Выходной узел','Mesh / Internet']];
+  const active=state.servers.filter(s=>observed(s).wdtt_service==='active').length;
+  const mesh=state.servers.filter(s=>observed(s).mesh_container==='running'&&observed(s).mesh_ip).length;
+  return `<div class="stack">${!state.servers.length?notice('Начните с добавления серверов','Панель проверит доступ и установит агент на каждый узел.'):''}
+    ${panel('Путь трафика','Схема определяется созданной цепочкой и наблюдаемым состоянием узлов.',`<div class="flow">${flow.map((item,i)=>`${i?'<div class="flow-link"><span>→</span><b></b></div>':''}<div class="flow-node"><span class="shape">${['◉','▤','⬡','◎'][i]}</span><strong>${esc(item[0])}</strong><small>${esc(item[1])}</small></div>`).join('')}</div>`)}
+    <div class="grid-three">${panel('Серверы','Добавленные узлы',`<div class="row between"><strong>${state.servers.length}</strong><button class="button tiny" data-go="servers">Управлять</button></div>`)}${panel('WDTT','Активные сервисы',`<div class="row between"><strong>${active} / ${state.servers.length}</strong><button class="button tiny" data-go="wdtt">Открыть</button></div>`)}${panel('Mesh','Подключенные контейнеры',`<div class="row between"><strong>${mesh} / ${state.servers.length}</strong><button class="button tiny" data-go="mesh">Открыть</button></div>`)}</div>
+    ${panel('Серверы','Последнее сохраненное состояние',serverTable())}
+    ${panel('Последние операции','Все действия фиксируются в журнале.',jobTable(5))}</div>`;
+}
+function servers() {
+  const s=state.servers.find(item=>item.id===state.selected);
+  return `<div class="stack">${panel('Подключенные серверы','Проверка состояния обращается к узлу напрямую.',serverTable())}
+  ${s?panel(`Сервер: ${s.name}`,'Наблюдаемое состояние и контроль доступности.',`<div class="button-bar"><button class="button primary" data-refresh-server="${s.id}">Обновить состояние</button><button class="button" data-go="diagnostics">Диагностика</button></div><dl class="kv"><dt>Адрес</dt><dd>${esc(s.host)}:${s.port}</dd><dt>Роль</dt><dd>${esc(s.role)}</dd><dt>Отпечаток SSH</dt><dd>${esc(s.fingerprint||'локальный сервер')}</dd><dt>ОС</dt><dd>${esc(s.os||'—')}</dd><dt>Последний ответ</dt><dd>${date(s.last_seen)}</dd></dl><pre class="code">${esc(JSON.stringify(observed(s),null,2))}</pre>`):''}
+  ${panel('Добавить сервер','Первое подключение требует пароль root или отпечаток SSH. После добавления используется отдельный ключ панели.',`<form data-form="add-server"><div class="field-grid"><label>Имя<input name="name" required maxlength="80" placeholder="lisette"></label><label>IP-адрес<input name="host" required placeholder="203.0.113.10"></label><label>SSH порт<input name="port" type="number" min="1" max="65535" value="22" required></label><label>Роль<select name="role"><option value="ingress">Входной</option><option value="egress">Выходной</option><option value="intermediate">Промежуточный</option></select></label><label>Пароль SSH<input name="password" type="password" autocomplete="new-password" required></label><label>Отпечаток ключа сервера (при наличии)<input name="fingerprint" placeholder="SHA256:..."></label></div><div class="form-actions"><button class="button primary">Проверить и добавить</button></div></form>`)}</div>`;
+}
+function chains() { return `<div class="stack">${panel('Цепочки','Пока цепочка сохраняет желаемый порядок; применение маршрутов выполняется в разделе «Маршрутизация».',state.chains.length?state.chains.map(c=>`<p><strong>${esc(c.name)}</strong> · ${esc((c.desired?.nodes||[]).map(id=>state.servers.find(s=>s.id===id)?.name||id).join(' → '))}</p>`).join(''):empty('Цепочек пока нет.'))}${panel('Новая цепочка','Укажите ID узлов в порядке прохождения трафика.',`<form data-form="add-chain"><div class="field-grid"><label>Название<input name="name" required maxlength="80"></label><label>ID узлов через запятую<input name="nodes" required placeholder="1, 2"></label></div><div class="form-actions"><button class="button primary">Сохранить цепочку</button></div></form>`)}</div>`; }
+function wdtt() { return `<div class="stack">${notice('Параметры WDTT','Текущий установщик использует интерфейс wdtt0 и подсеть 10.66.66.0/24. Сервис устанавливается на выбранный узел.')} ${panel('Установка и управление','Установщик закреплен по версии и проверяется перед запуском.',`<form data-form="wdtt-install"><div class="field-grid"><label>Сервер${serverSelect()}</label><label>Публичный IP или домен<input name="public_host" placeholder="IP сервера"></label><label>Пароль WDTT<input name="password" type="password" minlength="16" required autocomplete="new-password"></label><label>Ссылка VK Call<input name="vk_link" type="url" placeholder="https://vk.ru/call/join/..."></label><label>DTLS UDP<input name="dtls_port" type="number" min="1" max="65535" value="56000"></label><label>WireGuard UDP<input name="wg_port" type="number" min="1" max="65535" value="56001"></label></div><div class="form-actions"><button class="button primary" name="action" value="wdtt.install">Установить</button><button class="button" name="action" value="wdtt.reconfigure">Перенастроить</button></div></form>`)}${panel('Сервис','Импорт существующего WDTT записывает его состояние без изменения конфигурации.',`<form data-form="simple-action"><div class="field-grid"><label>Сервер${serverSelect()}</label><label>Действие<select name="action"><option value="wdtt.import">Импортировать существующий WDTT</option><option value="wdtt.start">Запустить</option><option value="wdtt.stop">Остановить</option><option value="wdtt.restart">Перезапустить</option><option value="wdtt.uninstall">Удалить сервис</option></select></label></div><div class="form-actions"><button class="button">Выполнить</button></div></form>`)}</div>`; }
+function mesh() {
+  const account=esc(state.cloudflare?.account_id||''),team=esc(state.cloudflare?.team||'');
+  const resources=state.cloudflareResources.length?`<div class="table-wrap"><table><thead><tr><th>Ресурс</th><th>Название</th><th>ID</th><th>Владелец</th></tr></thead><tbody>${state.cloudflareResources.map(r=>`<tr><td>${esc(r.kind)}</td><td>${esc(r.name)}</td><td>${esc(r.id)}</td><td>${esc(r.owner)}</td></tr>`).join('')}</tbody></table></div>`:empty('Созданных панелью ресурсов пока нет.');
+  return `<div class="stack">${notice('Отдельный тестовый аккаунт','Перед созданием маршрутов панель проверяет пересечения. Действующие маршруты в основном аккаунте нельзя изменять.', 'blue')}
+  ${panel('Cloudflare API','Токен сохраняется зашифрованным. При смене аккаунта проверка доступа выполняется заново.',`<form data-form="cloudflare"><div class="field-grid"><label>Account ID<input name="account_id" pattern="[a-fA-F0-9]{32}" required value="${account}"></label><label>Team<input name="team" required value="${team}" placeholder="team.cloudflareaccess.com"></label><label>API token<input name="token" type="password" required autocomplete="off"></label></div><div class="form-actions"><button class="button primary">Проверить доступ и сохранить</button></div></form>`)}
+  ${panel('Предварительная проверка маршрутов','Только запросы на чтение в Cloudflare.',`<form data-form="preflight"><div class="field-grid"><label>Account ID<input name="account_id" pattern="[a-fA-F0-9]{32}" value="${account}"></label><label>Подсеть WDTT<input name="wdtt_net" value="10.66.66.0/24"></label></div><div class="form-actions"><button class="button">Проверить маршруты</button></div></form><div id="preflight-result"></div>`)}
+  ${panel('Создать тестовый Mesh','Для отдельного пустого аккаунта. Задание создаст профиль, два узла и три маршрута; ID будут записаны в базу.',`<form data-form="deploy-mesh"><div class="field-grid"><label>Account ID<input name="account_id" required value="${account}"></label><label>Team<input name="team" required value="${team}"></label><label>Входной сервер${roleSelect('ingress_id','ingress')}</label><label>Выходной сервер${roleSelect('egress_id','egress')}</label><label>Имя входного Mesh узла<input name="ingress_name" required placeholder="wdtt-test-ingress"></label><label>Имя выходного Mesh узла<input name="egress_name" required placeholder="wdtt-test-egress"></label><label>Подсеть WDTT<input name="wdtt_net" value="10.66.66.0/24" required></label></div><div class="form-actions"><button class="button primary">Развернуть Mesh</button></div></form>`)}
+  ${panel('Ресурсы Cloudflare','Панель удаляет только ресурсы с отметкой «created».',resources)}
+  ${panel('Состояние Mesh','Живое состояние каждого узла доступно на странице сервера.',serverTable())}</div>`;
+}
+function vless() { return `<div class="stack">
+  ${notice('Только внутри Mesh','VLESS слушает приватный адрес выходного узла. В 3x-ui создаётся отдельный управляемый вход; публичный порт не открывается.')}
+  ${panel('Приватное соединение на выходном сервере','Ссылка VLESS необязательна. Если оставить поле пустым, панель создаст новый ключ и покажет ссылку после установки.',`<form data-form="vless-enable"><div class="field-grid"><label>Выходной сервер${roleSelect('server_id','egress')}</label><label>Приватный порт<input name="port" type="number" min="1024" max="65535" value="24443"></label><label>Существующая ссылка VLESS (необязательно)<input name="profile" type="password" autocomplete="off" placeholder="vless://...@100.96.0.2:24443?..."></label></div><div class="form-actions"><button class="button primary">Включить</button></div></form><div class="button-bar"><button class="button" data-reveal="vless">Показать сохранённую ссылку</button><button class="button" data-repair-vless>Проверить и восстановить</button><button class="button" data-disable-vless>Выключить на выбранном сервере</button></div><pre id="vless-secret" class="code" hidden></pre>`)}
+  ${panel('Направить трафик WDTT через VLESS','Вставьте сохранённую ссылку выходного сервера. Панель проверит TCP и UDP на отдельном тестовом интерфейсе перед применением к WDTT.',`<form data-form="vless-client-enable"><div class="field-grid"><label>Входной сервер${roleSelect('server_id','ingress')}</label><label>Приватная ссылка VLESS<input name="profile" type="password" required autocomplete="off" placeholder="vless://..."></label></div><div class="form-actions"><button class="button primary">Направить WDTT через VLESS</button></div></form><div class="button-bar"><button class="button" data-disable-vless-client>Вернуть прямой Mesh маршрут</button></div>`)}
+  ${panel('Состояние узлов',null,serverTable())}</div>`; }
+function xui() { return `<div class="stack">${panel('Установить 3x-ui','Панель управления и подписки привязаны к 127.0.0.1 на сервере.',`<form data-form="simple-action"><div class="field-grid"><label>Сервер${serverSelect()}</label><label>Действие<select name="action"><option value="xui.install">Установить</option><option value="xui.credentials">Обновить сохранённый доступ</option><option value="xui.start">Запустить</option><option value="xui.stop">Остановить</option><option value="xui.restart">Перезапустить</option></select></label></div><div class="form-actions"><button class="button primary">Выполнить</button></div></form><div class="button-bar"><button class="button" data-reveal="xui">Показать сохранённый доступ</button></div><pre id="xui-secret" class="code" hidden></pre>`)}${panel('Выход через WARP','Только для приватного VLESS входа на выходном сервере. При включении 3x-ui зарегистрирует отдельный WARP профиль и проверит исходящее соединение.',`<form data-form="xui-warp"><div class="field-grid"><label>Выходной сервер${roleSelect('server_id','egress')}</label></div><div class="form-actions"><button class="button primary" name="action" value="xui.warp.enable">Включить WARP</button><button class="button" name="action" value="xui.warp.disable">Вернуть прямой выход</button></div></form>`)}${panel('Состояние',null,serverTable())}</div>`; }
+function routing() { return `<div class="stack">${notice('Проверка перед применением','Узел использует сохранённые параметры Mesh. Панель проверяет связь и включает таймер отката.', 'blue')}${panel('Выборочный маршрут WDTT','Повторно применить правила для трафика подсети WDTT на выбранном узле.',`<form data-form="routing"><div class="field-grid"><label>Сервер${serverSelect()}</label><label>Подсеть WDTT<input name="wdtt_net" value="10.66.66.0/24" required></label></div><div class="form-actions"><button class="button primary">Применить маршрут</button></div></form>`)}${panel('Состояние узлов',null,serverTable())}${panel('Последние операции',null,jobTable(5))}</div>`; }
+function firewall() { return `<div class="stack">${notice('Защита доступа','Правила применяются с таймером отката. При ограничении SSH укажите адрес панели управления в разрешённой подсети.', 'blue')}${panel('Правила выбранного узла','Скрытый режим блокирует только ICMP echo. Сообщения о размере пакета остаются доступными.',`<form data-form="firewall"><div class="field-grid"><label>Сервер${serverSelect()}</label><label class="check"><input name="automatic" type="checkbox" checked>Управлять правилами</label><label class="check"><input name="stealth" type="checkbox">Скрытый режим</label><label class="check"><input name="restrict_ssh" type="checkbox">Ограничить SSH</label><label>Разрешённая подсеть управления<input name="management_cidr" placeholder="203.0.113.5/32"></label><label>Порт SSH<input name="ssh_port" type="number" min="1" max="65535" value="22"></label></div><div class="form-actions"><button class="button primary">Применить правила</button></div></form>`)}${panel('Состояние узлов',null,serverTable())}</div>`; }
+function events() { return panel('События за 24 часа','Отображаются сообщения без ключей и паролей.',state.events.length?`<div class="table-wrap"><table><thead><tr><th>Время</th><th>Узел</th><th>Компонент</th><th>Уровень</th><th>Сообщение</th></tr></thead><tbody>${state.events.map(e=>`<tr><td>${date(e.at)}</td><td>${esc(state.servers.find(s=>s.id===e.server_id)?.name||'—')}</td><td>${esc(e.component)}</td><td>${status(e.severity,e.severity==='info',e.severity==='warning')}</td><td>${esc(e.message)}</td></tr>`).join('')}</tbody></table></div>`:empty('Событий за последние 24 часа нет.')); }
+function diagnostics() { return `<div class="stack">${panel('Диагностический пакет','Файл содержит состояния серверов и операции без токенов, ключей и паролей.',`<a class="button" href="/api/diagnostics" download>Скачать JSON</a>`)}${panel('Состояние узлов',null,serverTable())}</div>`; }
+function settings() { return `<div class="stack">${panel('Сменить пароль','После смены пароля войдите снова.',`<form data-form="password"><div class="field-grid"><label>Текущий пароль<input name="old" type="password" required autocomplete="current-password"></label><label>Новый пароль<input name="new" type="password" minlength="16" required autocomplete="new-password"></label></div><div class="form-actions"><button class="button primary">Сменить пароль</button></div></form>`)}${panel('Аккаунт',null,`<dl class="kv"><dt>Пользователь</dt><dd>${esc(state.username)}</dd><dt>Время</dt><dd>${esc(new Date().toLocaleString('ru-RU'))}</dd></dl>`)}</div>`; }
+function render(view) { return ({overview,servers,chains,wdtt,mesh,vless,xui,routing,firewall,jobs:()=>panel('Все операции','Новые задания появятся автоматически после обновления.',jobTable()),events,diagnostics,settings}[view]||overview)(); }
+async function queue(id, body) { const result=await api(`/api/servers/${id}/actions`,{method:'POST',body}); toast(`Операция №${result.job_id} поставлена в очередь`); await navigate('jobs'); }
+async function submit(event) {
+  const form=event.target.closest('form[data-form]'); if (!form) return; event.preventDefault();
+  const button=event.submitter || form.querySelector('button[type=submit]'); const values=Object.fromEntries(new FormData(form).entries());
+  if (button?.name) values[button.name]=button.value;
+  button.disabled=true;
+  try {
+    switch(form.dataset.form) {
+      case 'add-server': await api('/api/servers',{method:'POST',body:{...values,port:Number(values.port)}}); toast('Сервер добавлен'); await navigate('servers'); break;
+      case 'add-chain': await api('/api/chains',{method:'POST',body:{name:values.name,nodes:values.nodes.split(',').map(v=>Number(v.trim()))}}); toast('Цепочка сохранена'); await navigate('chains'); break;
+      case 'wdtt-install': await queue(values.server_id,{action:values.action,password:values.password,vk_link:values.vk_link,public_host:values.public_host,dtls_port:Number(values.dtls_port),wg_port:Number(values.wg_port)}); break;
+      case 'simple-action': await queue(values.server_id,{action:values.action}); break;
+      case 'xui-warp': await queue(values.server_id,{action:values.action}); break;
+      case 'vless-enable': await queue(values.server_id,{action:'vless.enable',vless:{profile:values.profile,port:Number(values.port)}}); break;
+      case 'vless-client-enable': await queue(values.server_id,{action:'vless.client.enable',vless_client:{profile:values.profile}}); break;
+      case 'routing': await queue(values.server_id,{action:'routing.apply',mesh:{wdtt_net:values.wdtt_net}}); break;
+      case 'firewall': await queue(values.server_id,{action:'firewall.apply',firewall:{automatic:values.automatic==='on',stealth:values.stealth==='on',restrict_ssh:values.restrict_ssh==='on',management_cidr:values.management_cidr,ssh_port:Number(values.ssh_port)}}); break;
+      case 'cloudflare': { const result=await api('/api/cloudflare',{method:'POST',body:values}); state.cloudflare=result; form.reset(); toast('Доступ к Cloudflare проверен; настройки сохранены'); break; }
+      case 'deploy-mesh': { await api('/api/cloudflare/deploy',{method:'POST',body:{...values,ingress_id:Number(values.ingress_id),egress_id:Number(values.egress_id)}}); toast('Развертывание Mesh поставлено в очередь'); await navigate('jobs'); break; }
+      case 'preflight': { const result=await api('/api/mesh/preflight',{method:'POST',body:values}); $('#preflight-result').innerHTML=`<div class="notice ${result.safe_to_create?'green':''}"><span class="notice-symbol">${result.safe_to_create?'✓':'!'}</span><div><strong>${result.safe_to_create?'Конфликтов не найдено':'Маршруты нельзя создавать'}</strong><p>${esc(result.blockers?.join('; ')||`Найдено маршрутов: ${result.existing_routes}`)}</p></div></div><pre class="code">${esc(JSON.stringify(result.conflicts,null,2))}</pre>`; break; }
+      case 'password': await api('/api/password',{method:'POST',body:values}); showLogin(); toast('Пароль изменен. Войдите снова.'); break;
+    }
+  } catch(error) { toast(error.message); } finally { button.disabled=false; }
+}
+document.addEventListener('DOMContentLoaded', async()=>{
+  $('#login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.target;const data=Object.fromEntries(new FormData(form).entries());try{const me=await api('/api/login',{method:'POST',body:data});state.csrf=me.csrf;state.username=me.username;showShell();await navigate('overview');}catch(error){$('#login-error').textContent=error.message;}});
+  $('#logout-button').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'});}catch{}showLogin();});
+  $('#menu-button').addEventListener('click',()=>$('.sidebar').classList.toggle('open'));
+  $('#account-button').addEventListener('click',()=>navigate('settings'));
+  $('#nav').addEventListener('click',event=>{const b=event.target.closest('button[data-view]');if(b)navigate(b.dataset.view);});
+  $('#content').addEventListener('click',async event=>{
+    const go=event.target.closest('[data-go]'); if(go){navigate(go.dataset.go);return;}
+    const inspect=event.target.closest('[data-inspect]'); if(inspect){state.selected=Number(inspect.dataset.inspect);navigate('servers',false);return;}
+    const refresh=event.target.closest('[data-refresh-server]'); if(refresh){refresh.disabled=true;try{await api(`/api/servers/${refresh.dataset.refreshServer}/status`);toast('Состояние обновлено');await navigate('servers');}catch(error){toast(error.message);}finally{refresh.disabled=false;}}
+    const reveal=event.target.closest('[data-reveal]'); if(reveal){const kind=reveal.dataset.reveal;const id=Number($('#content select[name=server_id]')?.value);if(!id){toast('Выберите сервер');return;}try{const data=await api(`/api/servers/${id}/secrets/${kind}`);const out=$(`#${kind}-secret`);out.textContent=kind==='vless'?data.profile:JSON.stringify(data,null,2);out.hidden=false;}catch(error){toast(error.message);}return;}
+    const disable=event.target.closest('[data-disable-vless]'); if(disable){const id=Number($('#content select[name=server_id]')?.value);if(!id){toast('Выберите сервер');return;}try{await queue(id,{action:'vless.disable'});}catch(error){toast(error.message);}return;}
+    const repair=event.target.closest('[data-repair-vless]'); if(repair){const id=Number($('#content form[data-form=vless-enable] select[name=server_id]')?.value);if(!id){toast('Выберите выходной сервер');return;}try{await queue(id,{action:'vless.repair'});}catch(error){toast(error.message);}return;}
+    const disableClient=event.target.closest('[data-disable-vless-client]'); if(disableClient){const id=Number($('#content form[data-form=vless-client-enable] select[name=server_id]')?.value);if(!id){toast('Выберите входной сервер');return;}try{await queue(id,{action:'vless.client.disable'});}catch(error){toast(error.message);}return;}
+  });
+  $('#content').addEventListener('submit',submit);
+  const tick=()=>{$('#clock').textContent=new Date().toLocaleString('ru-RU',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'});};tick();setInterval(tick,30000);
+  try{const me=await api('/api/me');state.csrf=me.csrf;state.username=me.username;showShell();await navigate('overview');}catch{showLogin();}
+  setInterval(()=>{if(!$('#shell').hidden&&['overview','jobs','events'].includes(state.view))navigate(state.view).catch(()=>{});},15000);
+});

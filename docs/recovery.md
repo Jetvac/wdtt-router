@@ -1,0 +1,35 @@
+# Проверка и восстановление
+
+## Перед изменением сети
+
+Убедитесь, что есть доступ к консоли провайдера VPS. Сохраните адрес управления, `ip route`, `ip rule`, `iptables-save`, состояние служб и свежую резервную копию `/var/lib/wdtt-panel` вместе с `master.key`. Нельзя запускать параллельные ручные изменения тех же таблиц и цепочек во время операции панели.
+
+## Автоматический откат
+
+Узел сохраняет предыдущий файл конфигурации и до применения маршрутов/firewall запускает `wdtt-panel-recover-*.timer` на 180 секунд. Контроллер после применения проверяет SSH и состояние узла, затем отменяет timer. Если контроллер не подтвердит изменение, timer восстановит конфигурацию самостоятельно. В задаче видно `rolling_back` или ошибку проверки.
+
+## Проверки
+
+```bash
+sudo wdtt-panel selftest
+sudo wdtt-panel node probe-vless-client
+sudo wdtt-panel node probe-vless-client-json
+sudo systemctl status wdtt-panel wdtt x-ui
+sudo docker inspect -f '{{.State.Status}}' cloudflare-mesh
+sudo ip -4 rule show
+sudo ip -4 route show table 51889
+sudo systemctl list-timers 'wdtt-panel-recover-*'
+```
+
+`probe-vless-client` применим только на входном узле при включённом VLESS клиенте. Он проверяет реальный TCP и UDP в отдельном namespace, не меняя основной маршрут хоста. Отсутствие ответа внешнего тестового сервиса не означает автоматически ошибку WDTT: сначала сверяйте статус Mesh, Xray и Cloudflare API.
+При включённом WARP JSON вариант показывает IPv4 адрес Cloudflare вместо публичного IP выходного VPS. При выключении WARP он снова показывает IP выходного VPS. Для WARP проверьте флаги `xui_warp_enabled` и `xui_warp_ready` в `wdtt-panel status` выходного узла.
+
+## После перезагрузки
+
+Проверяйте в указанном порядке: `wdtt.service` и `wdtt0` на входе, Docker и `cloudflare-mesh` на обоих VPS, маршрут `10.66.66.0/24` и `/1` в тестовом Cloudflare аккаунте, `wdtt-panel-routing.service`, `wdtt-panel-firewall.service`, `x-ui.service`, затем `wdtt-panel-vless-client.service` на входе. У выходного узла Mesh может быть здоров по API при временной ошибке локального `warp-cli status`; проверяйте реальный peer traffic и API.
+
+## Ручное восстановление
+
+Если SSH потерян, дождитесь независимого таймера 180 секунд. Если он не сработал, используйте консоль провайдера и проверьте `systemctl list-timers`. Для возврата сохранённой конфигурации доступны команды `sudo wdtt-panel node restore-routing`, `sudo wdtt-panel node restore-firewall`, `sudo wdtt-panel node restore-vless-client`. Для отказа от VLESS используйте кнопку «Вернуть прямой Mesh маршрут» в панели после восстановления доступа.
+
+При ошибке обновления `install.sh update` возвращает прежний бинарный файл, базу, ключ и unit. Список копий: `/var/lib/wdtt-panel/backups/`. Восстанавливайте базу и `master.key` вместе, при остановленной службе панели.

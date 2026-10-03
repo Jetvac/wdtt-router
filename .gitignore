@@ -1,0 +1,10 @@
+.local/
+*.exe
+dist/
+coverage/
+*.db
+*.db-*
+*.log
+.env
+*.key
+*.pem
