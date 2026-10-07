@@ -165,6 +165,8 @@ func Apply(ctx context.Context, r Request) (Result, error) {
 		}
 		s := Inspect(ctx)
 		return Result{Message: "Panel-owned Mesh container removed", Status: &s}, nil
+	case "mesh.restart":
+		return RestartMesh(ctx)
 	case "routing.apply":
 		if r.Mesh == nil {
 			return Result{}, errors.New("mesh config required")

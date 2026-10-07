@@ -273,7 +273,7 @@ func (a *App) action(w http.ResponseWriter, r *http.Request, user auth.Session) 
 
 func allowedAction(action string) bool {
 	switch action {
-	case "status", "wdtt.import", "wdtt.install", "wdtt.reconfigure", "wdtt.start", "wdtt.stop", "wdtt.restart", "wdtt.uninstall", "xui.install", "xui.credentials", "xui.start", "xui.stop", "xui.restart", "xui.warp.enable", "xui.warp.disable", "mesh.install", "mesh.uninstall", "routing.apply", "firewall.apply", "recovery.restore", "vless.enable", "vless.disable", "vless.repair", "vless.client.enable", "vless.client.disable":
+	case "status", "wdtt.import", "wdtt.install", "wdtt.reconfigure", "wdtt.start", "wdtt.stop", "wdtt.restart", "wdtt.uninstall", "xui.install", "xui.credentials", "xui.start", "xui.stop", "xui.restart", "xui.warp.enable", "xui.warp.disable", "mesh.install", "mesh.restart", "mesh.uninstall", "routing.apply", "firewall.apply", "recovery.restore", "vless.enable", "vless.disable", "vless.repair", "vless.client.enable", "vless.client.disable":
 		return true
 	}
 	return false

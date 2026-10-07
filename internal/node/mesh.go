@@ -226,3 +226,32 @@ func removeOwnedMesh(ctx context.Context) error {
 	_ = os.Remove("/etc/wdtt-panel/mesh.env")
 	return nil
 }
+
+// RestartMesh recovers an unresponsive panel-owned connector without changing
+// its Cloudflare registration, Docker volume, or routing configuration.
+func RestartMesh(ctx context.Context) (Result, error) {
+	if _, err := os.Stat("/etc/wdtt-panel/mesh.json"); err != nil {
+		return Result{}, errors.New("Mesh is not panel-owned")
+	}
+	image, err := command(ctx, "docker", "inspect", "-f", "{{.Config.Image}}", "cloudflare-mesh")
+	if err != nil || image != "cloudflare/mesh:latest" {
+		return Result{}, errors.New("panel-owned Mesh container not found")
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	if err := run(checkCtx, "docker", "restart", "cloudflare-mesh"); err != nil {
+		return Result{}, err
+	}
+	for checkCtx.Err() == nil {
+		if report := Selftest(checkCtx); report.Passed {
+			s := Inspect(checkCtx)
+			return Result{Message: "Panel-owned Mesh container restarted; selftest passed", Status: &s}, nil
+		}
+		select {
+		case <-checkCtx.Done():
+			break
+		case <-time.After(3 * time.Second):
+		}
+	}
+	return Result{}, errors.New("Mesh did not pass selftest after restart; inspect node diagnostics")
+}
