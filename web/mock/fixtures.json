@@ -1,1 +1,1228 @@
-{"/api/overview": {"active_jobs": 0, "chain": [1, 2], "cloudflare": true, "jobs": [{"id": 21, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:09:54Z", "started_at": "2026-11-07T09:09:54Z", "finished_at": "2026-11-07T09:10:04Z"}, {"id": 20, "kind": "chain.probe", "node_id": 0, "title": "Проверка цепочки", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:08:46Z", "started_at": "2026-11-07T09:08:46Z", "finished_at": "2026-11-07T09:08:46Z"}, {"id": 19, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:30Z", "started_at": "2026-11-07T09:07:30Z", "finished_at": "2026-11-07T09:07:34Z"}, {"id": 18, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:26Z", "started_at": "2026-11-07T09:07:26Z", "finished_at": "2026-11-07T09:07:30Z"}, {"id": 17, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:18Z", "started_at": "2026-11-07T09:07:18Z", "finished_at": "2026-11-07T09:07:25Z"}, {"id": 16, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:25Z", "started_at": "2026-11-07T09:06:25Z", "finished_at": "2026-11-07T09:06:51Z"}, {"id": 15, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:21Z", "started_at": "2026-11-07T09:06:21Z", "finished_at": "2026-11-07T09:06:24Z"}, {"id": 14, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:12Z", "started_at": "2026-11-07T09:06:12Z", "finished_at": "2026-11-07T09:06:19Z"}], "nodes": [{"id": 1, "name": "129530", "host": "203.0.113.10", "ssh_port": 22, "fingerprint": "", "local": true, "mesh_ip": "100.96.0.8", "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79", "cf_node_name": "wdttr-129530-rzms", "hop_port": 59579, "ssh_public": true, "ssh_allow": [], "allow_ping": false, "firewall": true, "status": {"agent_version": "1.0.0-rc1", "hostname": "129530", "os": "Ubuntu 24.04.5 LTS", "arch": "amd64", "kernel": "6.8.0-142-generic", "public_iface": "enp3s0", "public_ipv4": "203.0.113.10", "uptime_sec": 417, "load1": 0.08, "mem_total_mb": 961, "mem_avail_mb": 505, "disk_free_mb": 35030, "spec_role": "entry", "spec_applied": "2026-11-07T09:07:34Z", "spec_hash": "864dcf32b573c075", "mesh_installed": true, "mesh_status": "Connected", "mesh_ip": "100.96.0.8", "mesh_version": "2026.8.2115.0", "xray_installed": true, "xray_version": "26.10.31", "xray_active": "active", "firewall_active": true, "firewall_ports": ["iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept", "tcp dport 22 accept", "tcp dport 8443 accept", "udp dport 56000 accept", "udp sport 547 udp dport 546 accept", "udp sport 67 udp dport 68 accept"], "revert_pending": false, "wdtt_installed": true, "wdtt_active": "active", "wdtt_iface": true, "wdtt_peers": 0, "xui_installed": true, "xui_active": "active", "xui_ports": [], "problems": []}, "last_seen": "2026-11-07T09:18:11Z", "last_error": "", "created_at": "2026-11-07T08:52:03Z", "role": "entry", "in_chain": true, "position": 0, "out_of_sync": false}, {"id": 2, "name": "exit-de", "host": "198.51.100.20", "ssh_port": 22, "fingerprint": "SHA256:mockmockmockmockmockmockmockmockmockmockmo", "local": false, "mesh_ip": "100.96.0.9", "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830", "cf_node_name": "wdttr-exit-de-tdsb", "hop_port": 33122, "ssh_public": false, "ssh_allow": [], "allow_ping": false, "firewall": true, "status": {"agent_version": "1.0.0-dev120423", "hostname": "130618", "os": "Ubuntu 24.04.5 LTS", "arch": "amd64", "kernel": "6.8.0-142-generic", "public_iface": "enp3s0", "public_ipv4": "198.51.100.20", "uptime_sec": 616, "load1": 0.16, "mem_total_mb": 961, "mem_avail_mb": 565, "disk_free_mb": 35697, "spec_role": "exit", "spec_applied": "2026-11-07T08:57:54Z", "spec_hash": "6cd3ec0024e286e1", "mesh_installed": true, "mesh_status": "Connected", "mesh_ip": "100.96.0.9", "mesh_version": "2026.8.2115.0", "xray_installed": true, "xray_version": "26.10.31", "xray_active": "active", "firewall_active": true, "firewall_ports": ["iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22, 33122 } accept", "udp sport 547 udp dport 546 accept", "udp sport 67 udp dport 68 accept"], "revert_pending": false, "wdtt_installed": false, "wdtt_active": "inactive", "wdtt_iface": false, "wdtt_peers": 0, "xui_installed": false, "xui_active": "", "xui_ports": null, "problems": []}, "last_seen": "2026-11-07T09:18:13Z", "last_error": "", "created_at": "2026-11-07T08:57:06Z", "role": "exit", "in_chain": true, "position": 1, "out_of_sync": false}], "plan_error": "", "probe": {"ok": true, "exit_ip": "198.51.100.20", "colo": "DME", "tcp_ms": 396, "udp_ok": true, "udp_ms": 35, "at": "2026-11-07T09:08:46Z", "exit_node": "exit-de", "expected_ip": "198.51.100.20", "match": true}, "services": {"wdtt_enabled": true, "wdtt_dtls_port": 56000, "wdtt_wg_port": 56001, "wdtt_dns": "1.1.1.1", "xui_enabled": true, "xui_route_via_chain": true, "panel_port": 8443, "panel_allow": []}, "version": "1.0.0-rc1"}, "/api/nodes": {"nodes": [{"id": 1, "name": "129530", "host": "203.0.113.10", "ssh_port": 22, "fingerprint": "", "local": true, "mesh_ip": "100.96.0.8", "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79", "cf_node_name": "wdttr-129530-rzms", "hop_port": 59579, "ssh_public": true, "ssh_allow": [], "allow_ping": false, "firewall": true, "status": {"agent_version": "1.0.0-rc1", "hostname": "129530", "os": "Ubuntu 24.04.5 LTS", "arch": "amd64", "kernel": "6.8.0-142-generic", "public_iface": "enp3s0", "public_ipv4": "203.0.113.10", "uptime_sec": 417, "load1": 0.08, "mem_total_mb": 961, "mem_avail_mb": 505, "disk_free_mb": 35030, "spec_role": "entry", "spec_applied": "2026-11-07T09:07:34Z", "spec_hash": "864dcf32b573c075", "mesh_installed": true, "mesh_status": "Connected", "mesh_ip": "100.96.0.8", "mesh_version": "2026.8.2115.0", "xray_installed": true, "xray_version": "26.10.31", "xray_active": "active", "firewall_active": true, "firewall_ports": ["iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept", "tcp dport 22 accept", "tcp dport 8443 accept", "udp dport 56000 accept", "udp sport 547 udp dport 546 accept", "udp sport 67 udp dport 68 accept"], "revert_pending": false, "wdtt_installed": true, "wdtt_active": "active", "wdtt_iface": true, "wdtt_peers": 0, "xui_installed": true, "xui_active": "active", "xui_ports": [], "problems": []}, "last_seen": "2026-11-07T09:18:11Z", "last_error": "", "created_at": "2026-11-07T08:52:03Z", "role": "entry", "in_chain": true, "position": 0, "out_of_sync": false}, {"id": 2, "name": "exit-de", "host": "198.51.100.20", "ssh_port": 22, "fingerprint": "SHA256:mockmockmockmockmockmockmockmockmockmockmo", "local": false, "mesh_ip": "100.96.0.9", "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830", "cf_node_name": "wdttr-exit-de-tdsb", "hop_port": 33122, "ssh_public": false, "ssh_allow": [], "allow_ping": false, "firewall": true, "status": {"agent_version": "1.0.0-dev120423", "hostname": "130618", "os": "Ubuntu 24.04.5 LTS", "arch": "amd64", "kernel": "6.8.0-142-generic", "public_iface": "enp3s0", "public_ipv4": "198.51.100.20", "uptime_sec": 616, "load1": 0.16, "mem_total_mb": 961, "mem_avail_mb": 565, "disk_free_mb": 35697, "spec_role": "exit", "spec_applied": "2026-11-07T08:57:54Z", "spec_hash": "6cd3ec0024e286e1", "mesh_installed": true, "mesh_status": "Connected", "mesh_ip": "100.96.0.9", "mesh_version": "2026.8.2115.0", "xray_installed": true, "xray_version": "26.10.31", "xray_active": "active", "firewall_active": true, "firewall_ports": ["iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22, 33122 } accept", "udp sport 547 udp dport 546 accept", "udp sport 67 udp dport 68 accept"], "revert_pending": false, "wdtt_installed": false, "wdtt_active": "inactive", "wdtt_iface": false, "wdtt_peers": 0, "xui_installed": false, "xui_active": "", "xui_ports": null, "problems": []}, "last_seen": "2026-11-07T09:18:13Z", "last_error": "", "created_at": "2026-11-07T08:57:06Z", "role": "exit", "in_chain": true, "position": 1, "out_of_sync": false}], "plan_error": ""}, "/api/services": {"public_host": "203.0.113.10", "settings": {"wdtt_enabled": true, "wdtt_dtls_port": 56000, "wdtt_wg_port": 56001, "wdtt_dns": "1.1.1.1", "xui_enabled": true, "xui_route_via_chain": true, "panel_port": 8443, "panel_allow": []}, "status": {"agent_version": "1.0.0-rc1", "hostname": "129530", "os": "Ubuntu 24.04.5 LTS", "arch": "amd64", "kernel": "6.8.0-142-generic", "public_iface": "enp3s0", "public_ipv4": "203.0.113.10", "uptime_sec": 417, "load1": 0.08, "mem_total_mb": 961, "mem_avail_mb": 505, "disk_free_mb": 35030, "spec_role": "entry", "spec_applied": "2026-11-07T09:07:34Z", "spec_hash": "864dcf32b573c075", "mesh_installed": true, "mesh_status": "Connected", "mesh_ip": "100.96.0.8", "mesh_version": "2026.8.2115.0", "xray_installed": true, "xray_version": "26.10.31", "xray_active": "active", "firewall_active": true, "firewall_ports": ["iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept", "tcp dport 22 accept", "tcp dport 8443 accept", "udp dport 56000 accept", "udp sport 547 udp dport 546 accept", "udp sport 67 udp dport 68 accept"], "revert_pending": false, "wdtt_installed": true, "wdtt_active": "active", "wdtt_iface": true, "wdtt_peers": 0, "xui_installed": true, "xui_active": "active", "xui_ports": [], "problems": []}, "xui_credentials": true}, "/api/cloudflare": {"account_id": "0123456789abcdef0123456789abcdef", "configured": true, "connectors": [{"created_at": "2026-11-07T08:56:46.229515Z", "id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79", "name": "wdttr-129530-rzms", "owned": true, "status": "healthy"}, {"created_at": "2026-11-07T08:57:09.195652Z", "id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830", "name": "wdttr-exit-de-tdsb", "owned": true, "status": "healthy"}], "team": "jetvac-test"}, "/api/cloudflare/preflight": {"checks": [{"key": "settings", "ok": true, "title": "Уникальные IP устройств и TCP/UDP-прокси Gateway", "detail": "Включены"}, {"key": "profile", "ok": true, "title": "Профиль устройств для узлов Mesh", "detail": "«Mesh Network Profile» (приоритет 1000): через Cloudflare идёт только диапазон Mesh."}, {"key": "reach", "ok": true, "title": "Связь между устройствами (Allow all Cloudflare One traffic to reach enrolled devices)", "detail": "Этот параметр меняется только в панели Cloudflare. Панель проверит его фактически: TCP-соединением между узлами после подключения."}]}, "/api/jobs?limit=200": [{"id": 21, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:09:54Z", "started_at": "2026-11-07T09:09:54Z", "finished_at": "2026-11-07T09:10:04Z"}, {"id": 20, "kind": "chain.probe", "node_id": 0, "title": "Проверка цепочки", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:08:46Z", "started_at": "2026-11-07T09:08:46Z", "finished_at": "2026-11-07T09:08:46Z"}, {"id": 19, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:30Z", "started_at": "2026-11-07T09:07:30Z", "finished_at": "2026-11-07T09:07:34Z"}, {"id": 18, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:26Z", "started_at": "2026-11-07T09:07:26Z", "finished_at": "2026-11-07T09:07:30Z"}, {"id": 17, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:18Z", "started_at": "2026-11-07T09:07:18Z", "finished_at": "2026-11-07T09:07:25Z"}, {"id": 16, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:25Z", "started_at": "2026-11-07T09:06:25Z", "finished_at": "2026-11-07T09:06:51Z"}, {"id": 15, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:21Z", "started_at": "2026-11-07T09:06:21Z", "finished_at": "2026-11-07T09:06:24Z"}, {"id": 14, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:12Z", "started_at": "2026-11-07T09:06:12Z", "finished_at": "2026-11-07T09:06:19Z"}, {"id": 13, "kind": "chain.probe", "node_id": 0, "title": "Проверка цепочки", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:05:54Z", "started_at": "2026-11-07T09:05:54Z", "finished_at": "2026-11-07T09:05:54Z"}, {"id": 12, "kind": "apply.all", "node_id": 0, "title": "Применение конфигурации ко всем серверам", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:05:22Z", "started_at": "2026-11-07T09:05:32Z", "finished_at": "2026-11-07T09:05:40Z"}, {"id": 11, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:05:21Z", "started_at": "2026-11-07T09:05:25Z", "finished_at": "2026-11-07T09:05:32Z"}, {"id": 10, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:05:21Z", "started_at": "2026-11-07T09:05:21Z", "finished_at": "2026-11-07T09:05:25Z"}, {"id": 9, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:04:32Z", "started_at": "2026-11-07T09:04:32Z", "finished_at": "2026-11-07T09:04:37Z"}, {"id": 8, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:03:49Z", "started_at": "2026-11-07T09:03:49Z", "finished_at": "2026-11-07T09:03:51Z"}, {"id": 7, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:02:22Z", "started_at": "2026-11-07T09:02:22Z", "finished_at": "2026-11-07T09:02:46Z"}, {"id": 6, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T08:59:01Z", "started_at": "2026-11-07T08:59:01Z", "finished_at": "2026-11-07T09:00:52Z"}, {"id": 5, "kind": "chain.probe", "node_id": 0, "title": "Проверка цепочки", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T08:58:44Z", "started_at": "2026-11-07T08:58:44Z", "finished_at": "2026-11-07T08:58:45Z"}, {"id": 4, "kind": "apply.all", "node_id": 0, "title": "Применение конфигурации ко всем серверам", "status": "failed", "error": "проверка цепочки не прошла: TCP through chain: unexpected response", "created_by": "admin", "created_at": "2026-11-07T08:57:50Z", "started_at": "2026-11-07T08:57:50Z", "finished_at": "2026-11-07T08:58:13Z"}, {"id": 3, "kind": "node.add", "node_id": 0, "title": "Добавление сервера exit-de", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T08:57:04Z", "started_at": "2026-11-07T08:57:05Z", "finished_at": "2026-11-07T08:57:20Z"}, {"id": 2, "kind": "node.enroll", "node_id": 1, "title": "Подключение к Mesh: 129530", "status": "success", "error": "", "created_by": "admin", "created_at": "2026-11-07T08:56:44Z", "started_at": "2026-11-07T08:56:44Z", "finished_at": "2026-11-07T08:56:55Z"}, {"id": 1, "kind": "node.enroll", "node_id": 1, "title": "Подключение к Mesh: 129530", "status": "failed", "error": "129530: chain hop: generated Xray configuration rejected: Xray 26.10.31 (Xray, Penetrates Everything.) a4a3dff (go1.27.3 linux/amd64)", "created_by": "admin", "created_at": "2026-11-07T08:52:37Z", "started_at": "2026-11-07T08:52:37Z", "finished_at": "2026-11-07T08:52:53Z"}], "/api/audit": [{"action": "node.apply", "at": "2026-11-07T09:09:54Z", "detail": "129530", "id": 29, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:07:30Z", "detail": "enabled=true route=true", "id": 28, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:07:26Z", "detail": "enabled=true route=false", "id": 27, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:07:18Z", "detail": "enabled=true port=56000", "id": 26, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:06:25Z", "detail": "enabled=true route=true", "id": 25, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:06:21Z", "detail": "enabled=false port=56000", "id": 24, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:06:12Z", "detail": "enabled=false route=true", "id": 23, "remote": "192.0.2.55", "username": "admin"}, {"action": "apply.all", "at": "2026-11-07T09:05:23Z", "detail": "", "id": 22, "remote": "192.0.2.55", "username": "admin"}, {"action": "apply.all", "at": "2026-11-07T09:05:22Z", "detail": "", "id": 21, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:05:22Z", "detail": "enabled=true route=true", "id": 20, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:05:22Z", "detail": "enabled=false route=true", "id": 19, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:05:22Z", "detail": "enabled=true port=56000", "id": 18, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:05:22Z", "detail": "enabled=false port=56000", "id": 17, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:05:22Z", "detail": "enabled=true route=true", "id": 16, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:05:21Z", "detail": "enabled=true port=56000", "id": 15, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:05:21Z", "detail": "enabled=false route=true", "id": 14, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T09:05:21Z", "detail": "enabled=false port=56000", "id": 13, "remote": "192.0.2.55", "username": "admin"}, {"action": "node.apply", "at": "2026-11-07T09:04:32Z", "detail": "129530", "id": 12, "remote": "192.0.2.55", "username": "admin"}, {"action": "node.apply", "at": "2026-11-07T09:03:49Z", "detail": "129530", "id": 11, "remote": "192.0.2.55", "username": "admin"}, {"action": "secret.view", "at": "2026-11-07T09:02:54Z", "detail": "xui", "id": 10, "remote": "192.0.2.55", "username": "admin"}, {"action": "xui.update", "at": "2026-11-07T09:02:22Z", "detail": "enabled=true route=true", "id": 9, "remote": "192.0.2.55", "username": "admin"}, {"action": "wdtt.update", "at": "2026-11-07T08:59:01Z", "detail": "enabled=true port=56000", "id": 8, "remote": "192.0.2.55", "username": "admin"}, {"action": "apply.all", "at": "2026-11-07T08:57:50Z", "detail": "", "id": 7, "remote": "192.0.2.55", "username": "admin"}, {"action": "chain.update", "at": "2026-11-07T08:57:50Z", "detail": "[1,2]", "id": 6, "remote": "192.0.2.55", "username": "admin"}, {"action": "node.add", "at": "2026-11-07T08:57:04Z", "detail": "198.51.100.20", "id": 5, "remote": "192.0.2.55", "username": "admin"}, {"action": "node.enroll", "at": "2026-11-07T08:56:44Z", "detail": "129530", "id": 4, "remote": "192.0.2.55", "username": "admin"}, {"action": "node.enroll", "at": "2026-11-07T08:52:37Z", "detail": "129530", "id": 3, "remote": "192.0.2.55", "username": "admin"}, {"action": "cloudflare.update", "at": "2026-11-07T08:52:29Z", "detail": "0123456789abcdef0123456789abcdef", "id": 2, "remote": "192.0.2.55", "username": "admin"}, {"action": "login", "at": "2026-11-07T08:52:21Z", "detail": "", "id": 1, "remote": "192.0.2.55", "username": "admin"}], "/api/settings": {"cert_fingerprint": "F7:00:BA:73:C3:71:52:57:71:DD:19:FD:28:D6:01:68:3A:4E:37:78:77:72:AE:71:03:76:E7:6B:36:74:E5:F1", "panel_allow": [], "panel_port": 8443, "version": "1.0.0-rc1", "xray_version": "26.10.31", "your_ip": "192.0.2.55"}, "/api/nodes/1/plan": {"version": 1, "node_id": 1, "role": "entry", "mesh": {"enabled": true, "node_name": "wdttr-129530-rzms", "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79", "token": "•••"}, "entry": {"chain": [{"addr": "100.96.0.9", "port": 33122, "uuid": "•••", "encryption": "•••"}], "socks_port": 45109, "socks_user": "uDjCuTrbM2H", "socks_pass": "•••", "wdtt": {"enabled": true, "dtls_port": 56000, "wg_port": 56001, "password": "•••", "dns": "1.1.1.1", "tproxy_port": 45110}, "xui": {"enabled": true, "route_via_chain": true}}, "firewall": {"enabled": true, "ssh_port": 22, "ssh_public": true, "panel_port": 8443, "allow_ping": false}}, "/api/nodes/2/plan": {"version": 1, "node_id": 2, "role": "exit", "mesh": {"enabled": true, "node_name": "wdttr-exit-de-tdsb", "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830", "token": "•••"}, "hop": {"port": 33122, "uuid": "•••", "decryption": "•••"}, "firewall": {"enabled": true, "ssh_port": 22, "ssh_public": false, "allow_ping": false}}, "/api/jobs/21": {"id": 21, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "log": "09:09:54  ── 129530: роль «вход»\n09:09:54  boot unit…\n09:09:55  Mesh…\n09:09:55  chain hop…\n09:09:55  WDTT…\n09:09:57  starting WDTT server\n09:10:00  3x-ui…\n09:10:00  firewall…\n09:10:04  129530: wdtt: service applied\n09:10:04  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:09:54Z", "started_at": "2026-11-07T09:09:54Z", "finished_at": "2026-11-07T09:10:04Z"}, "/api/jobs/20": {"id": 20, "kind": "chain.probe", "node_id": 0, "title": "Проверка цепочки", "status": "success", "log": "09:08:46  Проверка цепочки: TCP и UDP через все узлы\n09:08:46  Выход в Интернет: 198.51.100.20 (Cloudflare DME), TCP 396 мс, UDP 35 мс\n09:08:46  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:08:46Z", "started_at": "2026-11-07T09:08:46Z", "finished_at": "2026-11-07T09:08:46Z"}, "/api/jobs/19": {"id": 19, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "log": "09:07:30  ── 129530: роль «вход»\n09:07:30  boot unit…\n09:07:31  Mesh…\n09:07:31  chain hop…\n09:07:32  WDTT…\n09:07:32  3x-ui…\n09:07:32  firewall…\n09:07:34  129530: 3x-ui: traffic routed through the chain\n09:07:34  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:30Z", "started_at": "2026-11-07T09:07:30Z", "finished_at": "2026-11-07T09:07:34Z"}, "/api/jobs/18": {"id": 18, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "log": "09:07:26  ── 129530: роль «вход»\n09:07:26  boot unit…\n09:07:27  Mesh…\n09:07:27  chain hop…\n09:07:27  WDTT…\n09:07:28  3x-ui…\n09:07:28  firewall…\n09:07:28  applying firewall (auto-revert in 120 s unless confirmed)\n09:07:30  129530: 3x-ui: chain outbound removed\n09:07:30  129530: firewall: rules applied\n09:07:30  129530: проверяю доступ после смены firewall новым соединением\n09:07:30  129530: доступ подтверждён, правила firewall закреплены\n09:07:30  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:26Z", "started_at": "2026-11-07T09:07:26Z", "finished_at": "2026-11-07T09:07:30Z"}, "/api/jobs/17": {"id": 17, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "log": "09:07:18  ── 129530: роль «вход»\n09:07:18  boot unit…\n09:07:18  Mesh…\n09:07:18  chain hop…\n09:07:19  restarting Xray hop\n09:07:19  WDTT…\n09:07:21  starting WDTT server\n09:07:24  3x-ui…\n09:07:24  firewall…\n09:07:24  applying firewall (auto-revert in 120 s unless confirmed)\n09:07:25  129530: xray: configuration applied\n09:07:25  129530: wdtt: service applied\n09:07:25  129530: firewall: rules applied\n09:07:25  129530: проверяю доступ после смены firewall новым соединением\n09:07:25  129530: доступ подтверждён, правила firewall закреплены\n09:07:25  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:07:18Z", "started_at": "2026-11-07T09:07:18Z", "finished_at": "2026-11-07T09:07:25Z"}, "/api/jobs/16": {"id": 16, "kind": "node.apply", "node_id": 1, "title": "Применение настроек: 129530", "status": "success", "log": "09:06:25  ── 129530: роль «вход»\n09:06:25  boot unit…\n09:06:26  Mesh…\n09:06:26  chain hop…\n09:06:26  WDTT…\n09:06:26  3x-ui…\n09:06:26  installing 3x-ui v3.11.0\n09:06:49  firewall…\n09:06:51  129530: 3x-ui: installed\n09:06:51  129530: 3x-ui: traffic routed through the chain\n09:06:51  Готово\n", "error": "", "created_by": "admin", "created_at": "2026-11-07T09:06:25Z", "started_at": "2026-11-07T09:06:25Z", "finished_at": "2026-11-07T09:06:51Z"}}
+{
+ "/api/overview": {
+  "active_jobs": 0,
+  "chain": [
+   1,
+   2
+  ],
+  "cloudflare": true,
+  "jobs": [
+   {
+    "id": 21,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:09:54Z",
+    "started_at": "2026-11-07T09:09:54Z",
+    "finished_at": "2026-11-07T09:10:04Z"
+   },
+   {
+    "id": 20,
+    "kind": "chain.probe",
+    "node_id": 0,
+    "title": "Проверка цепочки",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:08:46Z",
+    "started_at": "2026-11-07T09:08:46Z",
+    "finished_at": "2026-11-07T09:08:46Z"
+   },
+   {
+    "id": 19,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:07:30Z",
+    "started_at": "2026-11-07T09:07:30Z",
+    "finished_at": "2026-11-07T09:07:34Z"
+   },
+   {
+    "id": 18,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:07:26Z",
+    "started_at": "2026-11-07T09:07:26Z",
+    "finished_at": "2026-11-07T09:07:30Z"
+   },
+   {
+    "id": 17,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:07:18Z",
+    "started_at": "2026-11-07T09:07:18Z",
+    "finished_at": "2026-11-07T09:07:25Z"
+   },
+   {
+    "id": 16,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:06:25Z",
+    "started_at": "2026-11-07T09:06:25Z",
+    "finished_at": "2026-11-07T09:06:51Z"
+   },
+   {
+    "id": 15,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:06:21Z",
+    "started_at": "2026-11-07T09:06:21Z",
+    "finished_at": "2026-11-07T09:06:24Z"
+   },
+   {
+    "id": 14,
+    "kind": "node.apply",
+    "node_id": 1,
+    "title": "Применение настроек: 129530",
+    "status": "success",
+    "error": "",
+    "created_by": "admin",
+    "created_at": "2026-11-07T09:06:12Z",
+    "started_at": "2026-11-07T09:06:12Z",
+    "finished_at": "2026-11-07T09:06:19Z"
+   }
+  ],
+  "nodes": [
+   {
+    "id": 1,
+    "name": "129530",
+    "host": "203.0.113.10",
+    "ssh_port": 22,
+    "fingerprint": "",
+    "local": true,
+    "mesh_ip": "100.96.0.8",
+    "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79",
+    "cf_node_name": "wdttr-129530-rzms",
+    "hop_port": 59579,
+    "ssh_public": true,
+    "ssh_allow": [],
+    "allow_ping": false,
+    "firewall": true,
+    "status": {
+     "agent_version": "1.0.0-rc1",
+     "hostname": "129530",
+     "os": "Ubuntu 24.04.5 LTS",
+     "arch": "amd64",
+     "kernel": "6.8.0-142-generic",
+     "public_iface": "enp3s0",
+     "public_ipv4": "203.0.113.10",
+     "uptime_sec": 417,
+     "load1": 0.08,
+     "mem_total_mb": 961,
+     "mem_avail_mb": 505,
+     "disk_free_mb": 35030,
+     "spec_role": "entry",
+     "spec_applied": "2026-11-07T09:07:34Z",
+     "spec_hash": "864dcf32b573c075",
+     "mesh_installed": true,
+     "mesh_status": "Connected",
+     "mesh_ip": "100.96.0.8",
+     "mesh_version": "2026.8.2115.0",
+     "xray_installed": true,
+     "xray_version": "26.10.31",
+     "xray_active": "active",
+     "firewall_active": true,
+     "firewall_ports": [
+      "iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept",
+      "tcp dport 22 accept",
+      "tcp dport 8443 accept",
+      "udp dport 56000 accept",
+      "udp sport 547 udp dport 546 accept",
+      "udp sport 67 udp dport 68 accept"
+     ],
+     "revert_pending": false,
+     "wdtt_installed": true,
+     "wdtt_active": "active",
+     "wdtt_iface": true,
+     "wdtt_peers": 0,
+     "xui_installed": true,
+     "xui_active": "active",
+     "xui_ports": [],
+     "problems": []
+    },
+    "last_seen": "2026-11-07T09:18:11Z",
+    "last_error": "",
+    "created_at": "2026-11-07T08:52:03Z",
+    "role": "entry",
+    "in_chain": true,
+    "position": 0,
+    "out_of_sync": false
+   },
+   {
+    "id": 2,
+    "name": "exit-de",
+    "host": "198.51.100.20",
+    "ssh_port": 22,
+    "fingerprint": "SHA256:mockmockmockmockmockmockmockmockmockmockmo",
+    "local": false,
+    "mesh_ip": "100.96.0.9",
+    "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830",
+    "cf_node_name": "wdttr-exit-de-tdsb",
+    "hop_port": 33122,
+    "ssh_public": false,
+    "ssh_allow": [],
+    "allow_ping": false,
+    "firewall": true,
+    "status": {
+     "agent_version": "1.0.0-dev120423",
+     "hostname": "130618",
+     "os": "Ubuntu 24.04.5 LTS",
+     "arch": "amd64",
+     "kernel": "6.8.0-142-generic",
+     "public_iface": "enp3s0",
+     "public_ipv4": "198.51.100.20",
+     "uptime_sec": 616,
+     "load1": 0.16,
+     "mem_total_mb": 961,
+     "mem_avail_mb": 565,
+     "disk_free_mb": 35697,
+     "spec_role": "exit",
+     "spec_applied": "2026-11-07T08:57:54Z",
+     "spec_hash": "6cd3ec0024e286e1",
+     "mesh_installed": true,
+     "mesh_status": "Connected",
+     "mesh_ip": "100.96.0.9",
+     "mesh_version": "2026.8.2115.0",
+     "xray_installed": true,
+     "xray_version": "26.10.31",
+     "xray_active": "active",
+     "firewall_active": true,
+     "firewall_ports": [
+      "iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22, 33122 } accept",
+      "udp sport 547 udp dport 546 accept",
+      "udp sport 67 udp dport 68 accept"
+     ],
+     "revert_pending": false,
+     "wdtt_installed": false,
+     "wdtt_active": "inactive",
+     "wdtt_iface": false,
+     "wdtt_peers": 0,
+     "xui_installed": false,
+     "xui_active": "",
+     "xui_ports": null,
+     "problems": []
+    },
+    "last_seen": "2026-11-07T09:18:13Z",
+    "last_error": "",
+    "created_at": "2026-11-07T08:57:06Z",
+    "role": "exit",
+    "in_chain": true,
+    "position": 1,
+    "out_of_sync": false
+   }
+  ],
+  "plan_error": "",
+  "probe": {
+   "ok": true,
+   "exit_ip": "198.51.100.20",
+   "colo": "DME",
+   "tcp_ms": 396,
+   "udp_ok": true,
+   "udp_ms": 35,
+   "at": "2026-11-07T09:08:46Z",
+   "exit_node": "exit-de",
+   "expected_ip": "198.51.100.20",
+   "match": true
+  },
+  "services": {
+   "wdtt_enabled": true,
+   "wdtt_dtls_port": 56000,
+   "wdtt_wg_port": 56001,
+   "wdtt_dns": "1.1.1.1",
+   "xui_enabled": true,
+   "xui_route_via_chain": true,
+   "panel_port": 8443,
+   "panel_allow": []
+  },
+  "version": "1.0.0-rc1"
+ },
+ "/api/nodes": {
+  "nodes": [
+   {
+    "id": 1,
+    "name": "129530",
+    "host": "203.0.113.10",
+    "ssh_port": 22,
+    "fingerprint": "",
+    "local": true,
+    "mesh_ip": "100.96.0.8",
+    "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79",
+    "cf_node_name": "wdttr-129530-rzms",
+    "hop_port": 59579,
+    "ssh_public": true,
+    "ssh_allow": [],
+    "allow_ping": false,
+    "firewall": true,
+    "status": {
+     "agent_version": "1.0.0-rc1",
+     "hostname": "129530",
+     "os": "Ubuntu 24.04.5 LTS",
+     "arch": "amd64",
+     "kernel": "6.8.0-142-generic",
+     "public_iface": "enp3s0",
+     "public_ipv4": "203.0.113.10",
+     "uptime_sec": 417,
+     "load1": 0.08,
+     "mem_total_mb": 961,
+     "mem_avail_mb": 505,
+     "disk_free_mb": 35030,
+     "spec_role": "entry",
+     "spec_applied": "2026-11-07T09:07:34Z",
+     "spec_hash": "864dcf32b573c075",
+     "mesh_installed": true,
+     "mesh_status": "Connected",
+     "mesh_ip": "100.96.0.8",
+     "mesh_version": "2026.8.2115.0",
+     "xray_installed": true,
+     "xray_version": "26.10.31",
+     "xray_active": "active",
+     "firewall_active": true,
+     "firewall_ports": [
+      "iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept",
+      "tcp dport 22 accept",
+      "tcp dport 8443 accept",
+      "udp dport 56000 accept",
+      "udp sport 547 udp dport 546 accept",
+      "udp sport 67 udp dport 68 accept"
+     ],
+     "revert_pending": false,
+     "wdtt_installed": true,
+     "wdtt_active": "active",
+     "wdtt_iface": true,
+     "wdtt_peers": 0,
+     "xui_installed": true,
+     "xui_active": "active",
+     "xui_ports": [],
+     "problems": []
+    },
+    "last_seen": "2026-11-07T09:18:11Z",
+    "last_error": "",
+    "created_at": "2026-11-07T08:52:03Z",
+    "role": "entry",
+    "in_chain": true,
+    "position": 0,
+    "out_of_sync": false
+   },
+   {
+    "id": 2,
+    "name": "exit-de",
+    "host": "198.51.100.20",
+    "ssh_port": 22,
+    "fingerprint": "SHA256:mockmockmockmockmockmockmockmockmockmockmo",
+    "local": false,
+    "mesh_ip": "100.96.0.9",
+    "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830",
+    "cf_node_name": "wdttr-exit-de-tdsb",
+    "hop_port": 33122,
+    "ssh_public": false,
+    "ssh_allow": [],
+    "allow_ping": false,
+    "firewall": true,
+    "status": {
+     "agent_version": "1.0.0-dev120423",
+     "hostname": "130618",
+     "os": "Ubuntu 24.04.5 LTS",
+     "arch": "amd64",
+     "kernel": "6.8.0-142-generic",
+     "public_iface": "enp3s0",
+     "public_ipv4": "198.51.100.20",
+     "uptime_sec": 616,
+     "load1": 0.16,
+     "mem_total_mb": 961,
+     "mem_avail_mb": 565,
+     "disk_free_mb": 35697,
+     "spec_role": "exit",
+     "spec_applied": "2026-11-07T08:57:54Z",
+     "spec_hash": "6cd3ec0024e286e1",
+     "mesh_installed": true,
+     "mesh_status": "Connected",
+     "mesh_ip": "100.96.0.9",
+     "mesh_version": "2026.8.2115.0",
+     "xray_installed": true,
+     "xray_version": "26.10.31",
+     "xray_active": "active",
+     "firewall_active": true,
+     "firewall_ports": [
+      "iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22, 33122 } accept",
+      "udp sport 547 udp dport 546 accept",
+      "udp sport 67 udp dport 68 accept"
+     ],
+     "revert_pending": false,
+     "wdtt_installed": false,
+     "wdtt_active": "inactive",
+     "wdtt_iface": false,
+     "wdtt_peers": 0,
+     "xui_installed": false,
+     "xui_active": "",
+     "xui_ports": null,
+     "problems": []
+    },
+    "last_seen": "2026-11-07T09:18:13Z",
+    "last_error": "",
+    "created_at": "2026-11-07T08:57:06Z",
+    "role": "exit",
+    "in_chain": true,
+    "position": 1,
+    "out_of_sync": false
+   }
+  ],
+  "plan_error": ""
+ },
+ "/api/services": {
+  "public_host": "203.0.113.10",
+  "settings": {
+   "wdtt_enabled": true,
+   "wdtt_dtls_port": 56000,
+   "wdtt_wg_port": 56001,
+   "wdtt_dns": "1.1.1.1",
+   "xui_enabled": true,
+   "xui_route_via_chain": true,
+   "panel_port": 8443,
+   "panel_allow": []
+  },
+  "status": {
+   "agent_version": "1.0.0-rc1",
+   "hostname": "129530",
+   "os": "Ubuntu 24.04.5 LTS",
+   "arch": "amd64",
+   "kernel": "6.8.0-142-generic",
+   "public_iface": "enp3s0",
+   "public_ipv4": "203.0.113.10",
+   "uptime_sec": 417,
+   "load1": 0.08,
+   "mem_total_mb": 961,
+   "mem_avail_mb": 505,
+   "disk_free_mb": 35030,
+   "spec_role": "entry",
+   "spec_applied": "2026-11-07T09:07:34Z",
+   "spec_hash": "864dcf32b573c075",
+   "mesh_installed": true,
+   "mesh_status": "Connected",
+   "mesh_ip": "100.96.0.8",
+   "mesh_version": "2026.8.2115.0",
+   "xray_installed": true,
+   "xray_version": "26.10.31",
+   "xray_active": "active",
+   "firewall_active": true,
+   "firewall_ports": [
+    "iifname \"CloudflareWARP\" ip saddr 100.96.0.0/12 tcp dport { 22 } accept",
+    "tcp dport 22 accept",
+    "tcp dport 8443 accept",
+    "udp dport 56000 accept",
+    "udp sport 547 udp dport 546 accept",
+    "udp sport 67 udp dport 68 accept"
+   ],
+   "revert_pending": false,
+   "wdtt_installed": true,
+   "wdtt_active": "active",
+   "wdtt_iface": true,
+   "wdtt_peers": 0,
+   "xui_installed": true,
+   "xui_active": "active",
+   "xui_ports": [],
+   "problems": []
+  },
+  "xui_credentials": true
+ },
+ "/api/cloudflare": {
+  "account_id": "0123456789abcdef0123456789abcdef",
+  "configured": true,
+  "connectors": [
+   {
+    "created_at": "2026-11-07T08:56:46.229515Z",
+    "id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79",
+    "name": "wdttr-129530-rzms",
+    "owned": true,
+    "status": "healthy"
+   },
+   {
+    "created_at": "2026-11-07T08:57:09.195652Z",
+    "id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830",
+    "name": "wdttr-exit-de-tdsb",
+    "owned": true,
+    "status": "healthy"
+   }
+  ],
+  "team": "example-team"
+ },
+ "/api/cloudflare/preflight": {
+  "checks": [
+   {
+    "key": "settings",
+    "ok": true,
+    "title": "Уникальные IP устройств и TCP/UDP-прокси Gateway",
+    "detail": "Включены"
+   },
+   {
+    "key": "profile",
+    "ok": true,
+    "title": "Профиль устройств для узлов Mesh",
+    "detail": "«Mesh Network Profile» (приоритет 1000): через Cloudflare идёт только диапазон Mesh."
+   },
+   {
+    "key": "reach",
+    "ok": true,
+    "title": "Связь между устройствами (Allow all Cloudflare One traffic to reach enrolled devices)",
+    "detail": "Этот параметр меняется только в панели Cloudflare. Панель проверит его фактически: TCP-соединением между узлами после подключения."
+   }
+  ]
+ },
+ "/api/jobs?limit=200": [
+  {
+   "id": 21,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:09:54Z",
+   "started_at": "2026-11-07T09:09:54Z",
+   "finished_at": "2026-11-07T09:10:04Z"
+  },
+  {
+   "id": 20,
+   "kind": "chain.probe",
+   "node_id": 0,
+   "title": "Проверка цепочки",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:08:46Z",
+   "started_at": "2026-11-07T09:08:46Z",
+   "finished_at": "2026-11-07T09:08:46Z"
+  },
+  {
+   "id": 19,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:07:30Z",
+   "started_at": "2026-11-07T09:07:30Z",
+   "finished_at": "2026-11-07T09:07:34Z"
+  },
+  {
+   "id": 18,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:07:26Z",
+   "started_at": "2026-11-07T09:07:26Z",
+   "finished_at": "2026-11-07T09:07:30Z"
+  },
+  {
+   "id": 17,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:07:18Z",
+   "started_at": "2026-11-07T09:07:18Z",
+   "finished_at": "2026-11-07T09:07:25Z"
+  },
+  {
+   "id": 16,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:06:25Z",
+   "started_at": "2026-11-07T09:06:25Z",
+   "finished_at": "2026-11-07T09:06:51Z"
+  },
+  {
+   "id": 15,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:06:21Z",
+   "started_at": "2026-11-07T09:06:21Z",
+   "finished_at": "2026-11-07T09:06:24Z"
+  },
+  {
+   "id": 14,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:06:12Z",
+   "started_at": "2026-11-07T09:06:12Z",
+   "finished_at": "2026-11-07T09:06:19Z"
+  },
+  {
+   "id": 13,
+   "kind": "chain.probe",
+   "node_id": 0,
+   "title": "Проверка цепочки",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:05:54Z",
+   "started_at": "2026-11-07T09:05:54Z",
+   "finished_at": "2026-11-07T09:05:54Z"
+  },
+  {
+   "id": 12,
+   "kind": "apply.all",
+   "node_id": 0,
+   "title": "Применение конфигурации ко всем серверам",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:05:22Z",
+   "started_at": "2026-11-07T09:05:32Z",
+   "finished_at": "2026-11-07T09:05:40Z"
+  },
+  {
+   "id": 11,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:05:21Z",
+   "started_at": "2026-11-07T09:05:25Z",
+   "finished_at": "2026-11-07T09:05:32Z"
+  },
+  {
+   "id": 10,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:05:21Z",
+   "started_at": "2026-11-07T09:05:21Z",
+   "finished_at": "2026-11-07T09:05:25Z"
+  },
+  {
+   "id": 9,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:04:32Z",
+   "started_at": "2026-11-07T09:04:32Z",
+   "finished_at": "2026-11-07T09:04:37Z"
+  },
+  {
+   "id": 8,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:03:49Z",
+   "started_at": "2026-11-07T09:03:49Z",
+   "finished_at": "2026-11-07T09:03:51Z"
+  },
+  {
+   "id": 7,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T09:02:22Z",
+   "started_at": "2026-11-07T09:02:22Z",
+   "finished_at": "2026-11-07T09:02:46Z"
+  },
+  {
+   "id": 6,
+   "kind": "node.apply",
+   "node_id": 1,
+   "title": "Применение настроек: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:59:01Z",
+   "started_at": "2026-11-07T08:59:01Z",
+   "finished_at": "2026-11-07T09:00:52Z"
+  },
+  {
+   "id": 5,
+   "kind": "chain.probe",
+   "node_id": 0,
+   "title": "Проверка цепочки",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:58:44Z",
+   "started_at": "2026-11-07T08:58:44Z",
+   "finished_at": "2026-11-07T08:58:45Z"
+  },
+  {
+   "id": 4,
+   "kind": "apply.all",
+   "node_id": 0,
+   "title": "Применение конфигурации ко всем серверам",
+   "status": "failed",
+   "error": "проверка цепочки не прошла: TCP through chain: unexpected response",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:57:50Z",
+   "started_at": "2026-11-07T08:57:50Z",
+   "finished_at": "2026-11-07T08:58:13Z"
+  },
+  {
+   "id": 3,
+   "kind": "node.add",
+   "node_id": 0,
+   "title": "Добавление сервера exit-de",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:57:04Z",
+   "started_at": "2026-11-07T08:57:05Z",
+   "finished_at": "2026-11-07T08:57:20Z"
+  },
+  {
+   "id": 2,
+   "kind": "node.enroll",
+   "node_id": 1,
+   "title": "Подключение к Mesh: 129530",
+   "status": "success",
+   "error": "",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:56:44Z",
+   "started_at": "2026-11-07T08:56:44Z",
+   "finished_at": "2026-11-07T08:56:55Z"
+  },
+  {
+   "id": 1,
+   "kind": "node.enroll",
+   "node_id": 1,
+   "title": "Подключение к Mesh: 129530",
+   "status": "failed",
+   "error": "129530: chain hop: generated Xray configuration rejected: Xray 26.10.31 (Xray, Penetrates Everything.) a4a3dff (go1.27.3 linux/amd64)",
+   "created_by": "admin",
+   "created_at": "2026-11-07T08:52:37Z",
+   "started_at": "2026-11-07T08:52:37Z",
+   "finished_at": "2026-11-07T08:52:53Z"
+  }
+ ],
+ "/api/audit": [
+  {
+   "action": "node.apply",
+   "at": "2026-11-07T09:09:54Z",
+   "detail": "129530",
+   "id": 29,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:07:30Z",
+   "detail": "enabled=true route=true",
+   "id": 28,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:07:26Z",
+   "detail": "enabled=true route=false",
+   "id": 27,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:07:18Z",
+   "detail": "enabled=true port=56000",
+   "id": 26,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:06:25Z",
+   "detail": "enabled=true route=true",
+   "id": 25,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:06:21Z",
+   "detail": "enabled=false port=56000",
+   "id": 24,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:06:12Z",
+   "detail": "enabled=false route=true",
+   "id": 23,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "apply.all",
+   "at": "2026-11-07T09:05:23Z",
+   "detail": "",
+   "id": 22,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "apply.all",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "",
+   "id": 21,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "enabled=true route=true",
+   "id": 20,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "enabled=false route=true",
+   "id": 19,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "enabled=true port=56000",
+   "id": 18,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "enabled=false port=56000",
+   "id": 17,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:05:22Z",
+   "detail": "enabled=true route=true",
+   "id": 16,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:05:21Z",
+   "detail": "enabled=true port=56000",
+   "id": 15,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:05:21Z",
+   "detail": "enabled=false route=true",
+   "id": 14,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T09:05:21Z",
+   "detail": "enabled=false port=56000",
+   "id": 13,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "node.apply",
+   "at": "2026-11-07T09:04:32Z",
+   "detail": "129530",
+   "id": 12,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "node.apply",
+   "at": "2026-11-07T09:03:49Z",
+   "detail": "129530",
+   "id": 11,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "secret.view",
+   "at": "2026-11-07T09:02:54Z",
+   "detail": "xui",
+   "id": 10,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "xui.update",
+   "at": "2026-11-07T09:02:22Z",
+   "detail": "enabled=true route=true",
+   "id": 9,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "wdtt.update",
+   "at": "2026-11-07T08:59:01Z",
+   "detail": "enabled=true port=56000",
+   "id": 8,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "apply.all",
+   "at": "2026-11-07T08:57:50Z",
+   "detail": "",
+   "id": 7,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "chain.update",
+   "at": "2026-11-07T08:57:50Z",
+   "detail": "[1,2]",
+   "id": 6,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "node.add",
+   "at": "2026-11-07T08:57:04Z",
+   "detail": "198.51.100.20",
+   "id": 5,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "node.enroll",
+   "at": "2026-11-07T08:56:44Z",
+   "detail": "129530",
+   "id": 4,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "node.enroll",
+   "at": "2026-11-07T08:52:37Z",
+   "detail": "129530",
+   "id": 3,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "cloudflare.update",
+   "at": "2026-11-07T08:52:29Z",
+   "detail": "0123456789abcdef0123456789abcdef",
+   "id": 2,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  },
+  {
+   "action": "login",
+   "at": "2026-11-07T08:52:21Z",
+   "detail": "",
+   "id": 1,
+   "remote": "192.0.2.55",
+   "username": "admin"
+  }
+ ],
+ "/api/settings": {
+  "cert_fingerprint": "F7:00:BA:73:C3:71:52:57:71:DD:19:FD:28:D6:01:68:3A:4E:37:78:77:72:AE:71:03:76:E7:6B:36:74:E5:F1",
+  "panel_allow": [],
+  "panel_port": 8443,
+  "version": "1.0.0-rc1",
+  "xray_version": "26.10.31",
+  "your_ip": "192.0.2.55"
+ },
+ "/api/nodes/1/plan": {
+  "version": 1,
+  "node_id": 1,
+  "role": "entry",
+  "mesh": {
+   "enabled": true,
+   "node_name": "wdttr-129530-rzms",
+   "cf_node_id": "54eea8d1-0077-4e1e-9fe8-ce03449ebf79",
+   "token": "•••"
+  },
+  "entry": {
+   "chain": [
+    {
+     "addr": "100.96.0.9",
+     "port": 33122,
+     "uuid": "•••",
+     "encryption": "•••"
+    }
+   ],
+   "socks_port": 45109,
+   "socks_user": "uDjCuTrbM2H",
+   "socks_pass": "•••",
+   "wdtt": {
+    "enabled": true,
+    "dtls_port": 56000,
+    "wg_port": 56001,
+    "password": "•••",
+    "dns": "1.1.1.1",
+    "tproxy_port": 45110
+   },
+   "xui": {
+    "enabled": true,
+    "route_via_chain": true
+   }
+  },
+  "firewall": {
+   "enabled": true,
+   "ssh_port": 22,
+   "ssh_public": true,
+   "panel_port": 8443,
+   "allow_ping": false
+  }
+ },
+ "/api/nodes/2/plan": {
+  "version": 1,
+  "node_id": 2,
+  "role": "exit",
+  "mesh": {
+   "enabled": true,
+   "node_name": "wdttr-exit-de-tdsb",
+   "cf_node_id": "4a0d85b7-8fd8-4d61-8df9-cecd7271d830",
+   "token": "•••"
+  },
+  "hop": {
+   "port": 33122,
+   "uuid": "•••",
+   "decryption": "•••"
+  },
+  "firewall": {
+   "enabled": true,
+   "ssh_port": 22,
+   "ssh_public": false,
+   "allow_ping": false
+  }
+ },
+ "/api/jobs/21": {
+  "id": 21,
+  "kind": "node.apply",
+  "node_id": 1,
+  "title": "Применение настроек: 129530",
+  "status": "success",
+  "log": "09:09:54  ── 129530: роль «вход»\n09:09:54  boot unit…\n09:09:55  Mesh…\n09:09:55  chain hop…\n09:09:55  WDTT…\n09:09:57  starting WDTT server\n09:10:00  3x-ui…\n09:10:00  firewall…\n09:10:04  129530: wdtt: service applied\n09:10:04  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:09:54Z",
+  "started_at": "2026-11-07T09:09:54Z",
+  "finished_at": "2026-11-07T09:10:04Z"
+ },
+ "/api/jobs/20": {
+  "id": 20,
+  "kind": "chain.probe",
+  "node_id": 0,
+  "title": "Проверка цепочки",
+  "status": "success",
+  "log": "09:08:46  Проверка цепочки: TCP и UDP через все узлы\n09:08:46  Выход в Интернет: 198.51.100.20 (Cloudflare DME), TCP 396 мс, UDP 35 мс\n09:08:46  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:08:46Z",
+  "started_at": "2026-11-07T09:08:46Z",
+  "finished_at": "2026-11-07T09:08:46Z"
+ },
+ "/api/jobs/19": {
+  "id": 19,
+  "kind": "node.apply",
+  "node_id": 1,
+  "title": "Применение настроек: 129530",
+  "status": "success",
+  "log": "09:07:30  ── 129530: роль «вход»\n09:07:30  boot unit…\n09:07:31  Mesh…\n09:07:31  chain hop…\n09:07:32  WDTT…\n09:07:32  3x-ui…\n09:07:32  firewall…\n09:07:34  129530: 3x-ui: traffic routed through the chain\n09:07:34  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:07:30Z",
+  "started_at": "2026-11-07T09:07:30Z",
+  "finished_at": "2026-11-07T09:07:34Z"
+ },
+ "/api/jobs/18": {
+  "id": 18,
+  "kind": "node.apply",
+  "node_id": 1,
+  "title": "Применение настроек: 129530",
+  "status": "success",
+  "log": "09:07:26  ── 129530: роль «вход»\n09:07:26  boot unit…\n09:07:27  Mesh…\n09:07:27  chain hop…\n09:07:27  WDTT…\n09:07:28  3x-ui…\n09:07:28  firewall…\n09:07:28  applying firewall (auto-revert in 120 s unless confirmed)\n09:07:30  129530: 3x-ui: chain outbound removed\n09:07:30  129530: firewall: rules applied\n09:07:30  129530: проверяю доступ после смены firewall новым соединением\n09:07:30  129530: доступ подтверждён, правила firewall закреплены\n09:07:30  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:07:26Z",
+  "started_at": "2026-11-07T09:07:26Z",
+  "finished_at": "2026-11-07T09:07:30Z"
+ },
+ "/api/jobs/17": {
+  "id": 17,
+  "kind": "node.apply",
+  "node_id": 1,
+  "title": "Применение настроек: 129530",
+  "status": "success",
+  "log": "09:07:18  ── 129530: роль «вход»\n09:07:18  boot unit…\n09:07:18  Mesh…\n09:07:18  chain hop…\n09:07:19  restarting Xray hop\n09:07:19  WDTT…\n09:07:21  starting WDTT server\n09:07:24  3x-ui…\n09:07:24  firewall…\n09:07:24  applying firewall (auto-revert in 120 s unless confirmed)\n09:07:25  129530: xray: configuration applied\n09:07:25  129530: wdtt: service applied\n09:07:25  129530: firewall: rules applied\n09:07:25  129530: проверяю доступ после смены firewall новым соединением\n09:07:25  129530: доступ подтверждён, правила firewall закреплены\n09:07:25  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:07:18Z",
+  "started_at": "2026-11-07T09:07:18Z",
+  "finished_at": "2026-11-07T09:07:25Z"
+ },
+ "/api/jobs/16": {
+  "id": 16,
+  "kind": "node.apply",
+  "node_id": 1,
+  "title": "Применение настроек: 129530",
+  "status": "success",
+  "log": "09:06:25  ── 129530: роль «вход»\n09:06:25  boot unit…\n09:06:26  Mesh…\n09:06:26  chain hop…\n09:06:26  WDTT…\n09:06:26  3x-ui…\n09:06:26  installing 3x-ui v3.11.0\n09:06:49  firewall…\n09:06:51  129530: 3x-ui: installed\n09:06:51  129530: 3x-ui: traffic routed through the chain\n09:06:51  Готово\n",
+  "error": "",
+  "created_by": "admin",
+  "created_at": "2026-11-07T09:06:25Z",
+  "started_at": "2026-11-07T09:06:25Z",
+  "finished_at": "2026-11-07T09:06:51Z"
+ },
+ "/api/wdtt/keys": {
+  "keys": [
+   {
+    "id": "kq3x8m2a7c",
+    "name": "Телефон Анны",
+    "vk_hash": "AbCdEfGhIjKlMnOp1234",
+    "expires_at": 1796475800,
+    "disabled": false,
+    "created_at": "2026-11-01T10:00:00Z",
+    "state": "active",
+    "device_id": "a1b2c3d4e5f60718",
+    "device_ip": "10.66.66.3",
+    "sessions": 24,
+    "up_bytes": 183500000,
+    "down_bytes": 2400000000,
+    "last_seen": 1794142940
+   },
+   {
+    "id": "k7hd2kq9wz",
+    "name": "Планшет",
+    "vk_hash": "",
+    "expires_at": 0,
+    "disabled": false,
+    "created_at": "2026-11-02T10:00:00Z",
+    "state": "active",
+    "device_id": "",
+    "device_ip": "",
+    "sessions": 0,
+    "up_bytes": 0,
+    "down_bytes": 0,
+    "last_seen": 0
+   },
+   {
+    "id": "kpl0v1x4ad",
+    "name": "Гость на неделю",
+    "vk_hash": "AbCdEfGhIjKlMnOp1234",
+    "expires_at": 1794056600,
+    "disabled": false,
+    "created_at": "2026-10-25T10:00:00Z",
+    "state": "expired",
+    "device_id": "9f8e7d6c5b4a3921",
+    "device_ip": "10.66.66.4",
+    "sessions": 0,
+    "up_bytes": 5200000,
+    "down_bytes": 81000000,
+    "last_seen": 1793970200
+   },
+   {
+    "id": "kr2bq8n5ce",
+    "name": "Ноутбук",
+    "vk_hash": "",
+    "expires_at": 0,
+    "disabled": true,
+    "created_at": "2026-10-20T10:00:00Z",
+    "state": "disabled",
+    "device_id": "0011223344556677",
+    "device_ip": "10.66.66.5",
+    "sessions": 0,
+    "up_bytes": 1200000,
+    "down_bytes": 9000000,
+    "last_seen": 1793711000
+   }
+  ],
+  "limit": 200,
+  "main_vk_hash": "AbCdEfGhIjKlMnOp1234",
+  "runtime": {
+   "sessions": 32,
+   "devices": 5,
+   "version": "1.1.0",
+   "started_at": 1794139400,
+   "updated_at": 1794143000,
+   "auth_failures": 17,
+   "handshake_failures": 2,
+   "main": {
+    "sessions": 8,
+    "up_bytes": 52000000,
+    "down_bytes": 610000000
+   }
+  }
+ },
+ "/api/wdtt/keys/main/link": {
+  "password": "Xy7.mock-owner-password",
+  "host": "203.0.113.10",
+  "port": "56000",
+  "link": "wdtt://203.0.113.10:56000:56001:9000:Xy7.mock-owner-password:AbCdEfGhIjKlMnOp1234"
+ },
+ "/api/wdtt/keys/kq3x8m2a7c/link": {
+  "password": "mockKeyPassword12345",
+  "host": "203.0.113.10",
+  "port": "56000",
+  "link": "wdtt://203.0.113.10:56000:56001:9000:mockKeyPassword12345:AbCdEfGhIjKlMnOp1234"
+ },
+ "/api/wdtt/keys/k7hd2kq9wz/link": {
+  "password": "mockKeyPassword67890",
+  "host": "203.0.113.10",
+  "port": "56000"
+ }
+}

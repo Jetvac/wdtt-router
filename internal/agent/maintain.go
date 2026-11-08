@@ -13,15 +13,17 @@ import (
 //     starts or reloads, e.g. on "netplan apply");
 //   - firewall ports of enabled 3x-ui inbounds.
 func Maintain(ctx context.Context) error {
-	s, _, err := loadSaved()
-	if err != nil || s.Entry == nil {
-		return nil
-	}
 	unlock, err := Lock(5e9)
 	if err != nil {
 		return nil // an apply is running and refreshes everything itself
 	}
 	defer unlock()
+	// Read the settings only under the lock: an apply that finished while we
+	// waited has saved new ones, and acting on the old copy would undo it.
+	s, _, err := loadSaved()
+	if err != nil || s.Entry == nil {
+		return nil
+	}
 	if s.Entry.WDTT.Enabled && !tproxyRoutingPresent(ctx) {
 		Logf("restoring WDTT policy routing")
 		if err := applyTProxyRouting(ctx); err != nil {

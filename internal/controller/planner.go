@@ -200,7 +200,11 @@ func (a *App) entrySpec(es EntrySettings) (*spec.EntrySpec, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.WDTT = spec.WDTTSpec{Enabled: true, DTLSPort: es.WDTTDTLSPort, WGPort: es.WDTTWGPort, Password: wp, DNS: es.WDTTDNS, TProxy: tproxy}
+		keys, err := a.wdttKeySpecs()
+		if err != nil {
+			return nil, err
+		}
+		e.WDTT = spec.WDTTSpec{Enabled: true, DTLSPort: es.WDTTDTLSPort, WGPort: es.WDTTWGPort, Password: wp, DNS: es.WDTTDNS, TProxy: tproxy, Keys: keys}
 	}
 	return e, nil
 }

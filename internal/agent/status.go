@@ -151,7 +151,12 @@ func Inspect(ctx context.Context) spec.Status {
 	s.WDTTActive = unitState(wdttUnit)
 	_, err := net.InterfaceByName(WDTTIface)
 	s.WDTTIface = err == nil
-	s.WDTTPeers = wdttPeers()
+	if s.WDTTInstalled {
+		if r := wdttRuntime(); r != nil {
+			s.WDTT = r
+			s.WDTTPeers = r.Devices
+		}
+	}
 	s.XUIInstalled = xuiInstalled()
 	if s.XUIInstalled {
 		s.XUIActive = unitState("x-ui.service")

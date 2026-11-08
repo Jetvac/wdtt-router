@@ -68,6 +68,7 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 		fn   func() error
 	}{
 		{"boot unit", func() error { _, err := installUnit(ctx, bootUnit, bootUnitText); return err }},
+		{"network tuning", func() error { return reconcileSysctl(ctx, &res.Changed) }},
 		{"Mesh", func() error { return reconcileMesh(ctx, s.Mesh, &res.Changed) }},
 		{"chain hop", func() error { return reconcileXray(ctx, s, &res.Changed) }},
 		{"WDTT", func() error { return reconcileWDTT(ctx, s.Entry, &res.Changed) }},
@@ -166,7 +167,7 @@ func Uninstall(ctx context.Context, purge bool) ([]string, error) {
 		purgeWarp(ctx)
 		removeIfExists(LibDir+"/xray", VarDir)
 	}
-	removeIfExists(specPath, fwPath, fwPendingPath, fwPrevPath, xrayConfig, EtcDir+"/wdtt-tproxy.nft")
+	removeIfExists(specPath, fwPath, fwPendingPath, fwPrevPath, xrayConfig, EtcDir+"/wdtt-tproxy.nft", sysctlPath)
 	if purge {
 		removeIfExists(EtcDir)
 	}

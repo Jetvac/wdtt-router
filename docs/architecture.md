@@ -7,6 +7,7 @@
 | Режим | Где | Что делает |
 | --- | --- | --- |
 | `serve` | входной сервер | HTTPS-панель, API, очередь задач, планировщик, клиент Cloudflare API |
+| `wdtt-server` | входной сервер | сервер WDTT (служба `wdtt-router-wdtt`) |
 | `agent …` | каждый сервер | приводит сервер к заданному состоянию, сообщает статус, проверяет цепочку |
 
 Панель вызывает агента локально (на входе) или по SSH со своим ключом. Для серверов в Mesh SSH идёт через Mesh-адрес, публичный адрес используется только как запасной путь. Постоянного соединения от агента к панели нет.
@@ -15,6 +16,7 @@
 | --- | --- |
 | `internal/spec` | декларативная спецификация узла (`NodeSpec`), генерация ключей |
 | `internal/agent` | Mesh (cloudflare-warp), звено цепочки (Xray), nftables, WDTT, 3x-ui, статус, проверка |
+| `internal/wdtt` | сервер WDTT: маскировка под RTP, DTLS, выдача конфигурации, WireGuard без UDP-порта ([подробнее](wdtt.md)) |
 | `internal/controller` | HTTP API, сессии, задачи, планировщик, Cloudflare |
 | `internal/cfapi` | клиент Cloudflare API: Mesh-узлы, токены, профили устройств, проверка аккаунта |
 | `internal/store` | SQLite (без CGO), шифрование секретов AES-256-GCM |
@@ -27,7 +29,7 @@
 
 1. Mesh — установка `cloudflare-warp`, регистрация узла токеном, ожидание Mesh-адреса.
 2. Звено цепочки — Xray с проверенной SHA-256 версией, проверка конфигурации `xray run -test`, перезапуск только при изменении.
-3. WDTT — сборка `wdtt-server` из закреплённого коммита, TPROXY и kill switch, служба.
+3. WDTT — TPROXY и kill switch, конфигурация паролей, служба встроенного сервера. Изменение паролей применяется перечитыванием (SIGHUP) без разрыва клиентов.
 4. 3x-ui — установка закреплённой версии, привязка веб-интерфейса и подписок к 127.0.0.1, исходящее подключение в цепочку.
 5. Firewall — последним, с таймером отката.
 
@@ -54,9 +56,10 @@ CloudflareWARP (Mesh 100.96.x) ─▶ промежуточный: пропуск
 | Путь | Содержимое |
 | --- | --- |
 | `/usr/local/bin/wdtt-router` | панель/агент |
-| `/usr/local/lib/wdtt-router/` | `xray`, `wdtt-server` |
-| `/etc/wdtt-router/` | `spec.json`, `xray.json`, `firewall.nft`, `wdtt.env` (0600) |
+| `/usr/local/lib/wdtt-router/` | `xray` |
+| `/etc/wdtt-router/` | `spec.json`, `xray.json`, `firewall.nft`, `wdtt.json` (0600) |
 | `/var/lib/wdtt-router/panel/` | база панели, ключ шифрования, SSH-ключ панели, сертификат |
-| `/var/lib/wdtt-router/wdtt/` | ключи и база клиентов WDTT (сохраняется при отключении) |
+| `/var/lib/wdtt-router/wdtt/` | ключи сервера и устройства WDTT (сохраняются при отключении) |
+| `/etc/sysctl.d/90-wdtt-router.conf` | BBR, fq, буферы сокетов |
 
 Службы: `wdtt-router` (панель), `wdtt-router-xray`, `wdtt-router-wdtt`, `wdtt-router-boot` (восстановление правил при загрузке), `wdtt-router-maintain.timer` (каждые 30 с: восстановление правил маршрутизации, синхронизация портов 3x-ui).

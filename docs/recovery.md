@@ -9,6 +9,8 @@ systemctl status wdtt-router wdtt-router-xray wdtt-router-wdtt x-ui warp-svc
 warp-cli --accept-tos status                # Mesh
 nft list table inet wdtt_router             # firewall
 journalctl -u wdtt-router -f                # журнал панели
+journalctl -u wdtt-router-wdtt -f           # журнал сервера WDTT
+cat /run/wdtt-router/wdtt-status.json       # сессии и ключи WDTT
 ```
 
 В панели: «Обзор» → «Проверить», «Задачи» (журнал каждой операции), «Безопасность».
@@ -22,6 +24,8 @@ journalctl -u wdtt-router -f                # журнал панели
 **Цепочка не работает, но все узлы в сети.** Проверьте в разделе Cloudflare, что профиль устройств не перехватывает весь трафик и что в аккаунте включено *Allow all Cloudflare One traffic to reach enrolled devices*.
 
 **Нужен доступ к серверу с закрытым публичным SSH.** С входного сервера: `ssh root@<Mesh-адрес>`. Либо включите «Публичный SSH» в карточке сервера и примените. При полной потере Mesh используйте консоль провайдера и выполните `nft delete table inet wdtt_router`.
+
+**Клиент WDTT не подключается.** Отказ по паролю, сроку или чужому устройству клиент показывает сам. Если ключ привязан к старому телефону — «Отвязать устройство». Если сессии не устанавливаются вовсе, проверьте, что UDP-порт DTLS открыт у провайдера сервера, и хеш звонка VK в ссылке.
 
 **Забыт пароль панели.** `sudo wdtt-router reset-password` на входном сервере.
 

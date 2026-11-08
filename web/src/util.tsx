@@ -101,3 +101,15 @@ export const jobStatus: Record<string, { color: string; text: string }> = {
   success: { color: 'success', text: 'Готово' },
   failed: { color: 'error', text: 'Ошибка' },
 }
+
+export function fmtBytes(n?: number) {
+  if (!n) return '0 Б'
+  const u = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${u[i]}`
+}

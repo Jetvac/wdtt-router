@@ -42,6 +42,11 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("PUT /api/services/xui", a.authed(a.putXUI))
 	m.HandleFunc("GET /api/services/{name}/secret", a.authed(a.serviceSecret))
 	m.HandleFunc("POST /api/services/xui/reset", a.authed(a.resetXUI))
+	m.HandleFunc("GET /api/wdtt/keys", a.authed(a.listWDTTKeys))
+	m.HandleFunc("POST /api/wdtt/keys", a.authed(a.createWDTTKey))
+	m.HandleFunc("PATCH /api/wdtt/keys/{id}", a.authed(a.patchWDTTKey))
+	m.HandleFunc("DELETE /api/wdtt/keys/{id}", a.authed(a.deleteWDTTKey))
+	m.HandleFunc("GET /api/wdtt/keys/{id}/link", a.authed(a.wdttLink))
 
 	m.HandleFunc("GET /api/cloudflare", a.authed(a.getCloudflare))
 	m.HandleFunc("PUT /api/cloudflare", a.authed(a.putCloudflare))
@@ -397,6 +402,10 @@ func (a *App) nodePlan(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		e := *c.Entry
 		e.SocksPass = redacted(e.SocksPass)
 		e.WDTT.Password = redacted(e.WDTT.Password)
+		e.WDTT.Keys = slices.Clone(e.WDTT.Keys)
+		for i := range e.WDTT.Keys {
+			e.WDTT.Keys[i].Password = redacted(e.WDTT.Keys[i].Password)
+		}
 		e.Chain = slices.Clone(e.Chain)
 		for i := range e.Chain {
 			e.Chain[i].UUID, e.Chain[i].Encryption = redacted(e.Chain[i].UUID), redacted(e.Chain[i].Encryption)
@@ -507,6 +516,10 @@ func (a *App) putWDTT(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		DTLSPort int    `json:"dtls_port"`
 		DNS      string `json:"dns"`
 		Rotate   bool   `json:"rotate_password"`
+		// Password sets a chosen owner password, e.g. the one existing
+		// clients of an earlier WDTT server already use.
+		Password *string `json:"password"`
+		VKHash   *string `json:"vk_hash"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -526,6 +539,32 @@ func (a *App) putWDTT(w http.ResponseWriter, r *http.Request, s auth.Session) {
 			apiError(w, 400, "DNS: укажите IP-адреса через запятую")
 			return
 		}
+	}
+	var hash string
+	if body.VKHash != nil {
+		h, err := normalizeVKHashes(*body.VKHash)
+		if err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		hash = h
+	}
+	if body.Password != nil && *body.Password != "" {
+		if !rePassword.MatchString(*body.Password) {
+			apiError(w, 400, "пароль владельца: 16–128 символов A–Z, a–z, 0–9, точка, дефис, подчёркивание")
+			return
+		}
+		keys, _ := a.Store.WDTTKeys()
+		for _, k := range keys {
+			if k.Password == *body.Password {
+				apiError(w, 400, "этот пароль уже выдан как ключ доступа")
+				return
+			}
+		}
+		_ = a.Store.PutSecret("wdtt_password", *body.Password)
+	}
+	if body.VKHash != nil {
+		_ = a.Store.SetSetting("wdtt_vk_hash", hash)
 	}
 	_ = a.Store.SetSetting("wdtt_enabled", map[bool]string{true: "1", false: "0"}[body.Enabled])
 	_ = a.Store.SetSetting("wdtt_dtls_port", strconv.Itoa(body.DTLSPort))

@@ -18,6 +18,7 @@ import (
 	"github.com/Jetvac/wdtt-router/internal/agent"
 	"github.com/Jetvac/wdtt-router/internal/auth"
 	"github.com/Jetvac/wdtt-router/internal/controller"
+	"github.com/Jetvac/wdtt-router/internal/wdtt"
 	"github.com/Jetvac/wdtt-router/web"
 )
 
@@ -34,6 +35,9 @@ Panel:
 
 Agent (run by the panel on every server):
   wdtt-router agent status|apply|confirm|probe|boot|uninstall [--purge]|version
+
+WDTT server (run by systemd on the entry server):
+  wdtt-router wdtt-server [--config /etc/wdtt-router/wdtt.json]   SIGHUP reloads passwords
 `, agent.Version)
 }
 
@@ -50,6 +54,8 @@ func main() {
 		err = agentMain(ctx, os.Args[2:])
 	case "serve":
 		err = serve(ctx, os.Args[2:])
+	case "wdtt-server":
+		err = wdttServer(ctx, os.Args[2:])
 	case "init":
 		err = initPanel(os.Args[2:])
 	case "reset-password":
@@ -89,6 +95,24 @@ func openApp(data string, port int, host string) (*controller.App, error) {
 		}
 	}
 	return controller.Open(data, port, host, ui())
+}
+
+func wdttServer(ctx context.Context, args []string) error {
+	fl := flag.NewFlagSet("wdtt-server", flag.ExitOnError)
+	cfg := fl.String("config", agent.WDTTConfigPath, "configuration file")
+	_ = fl.Parse(args)
+	s := wdtt.NewServer(*cfg, wdtt.NewLinuxPeers)
+	s.Version = agent.Version
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			if err := s.Reload(); err != nil {
+				fmt.Fprintln(os.Stderr, "reload failed:", err)
+			}
+		}
+	}()
+	return s.Run(ctx)
 }
 
 func initPanel(args []string) error {
@@ -210,9 +234,6 @@ func agentMain(ctx context.Context, args []string) error {
 		pctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		return printJSON(agent.Probe(pctx))
-	case "wdtt-post-start":
-		agent.WDTTPostStart(ctx)
-		return nil
 	case "xui-reset":
 		b, _ := io.ReadAll(io.LimitReader(os.Stdin, 4096))
 		parts := strings.Split(strings.TrimSpace(string(b)), "\n")

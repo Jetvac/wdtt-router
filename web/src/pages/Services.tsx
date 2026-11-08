@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, Popconfirm, Row, Space, Switch, Tag, Typography } from 'antd'
-import { EyeOutlined, KeyOutlined } from '@ant-design/icons'
+import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Row, Space, Switch, Tag, Typography } from 'antd'
+import { EyeOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons'
 import { get, post, put } from '../api'
 import { useJobs } from '../components/Jobs'
-import type { EntrySettings, Status } from '../types'
-import { usePoll } from '../util'
+import { LinkModal, useWDTTKeys, WDTTKeysCard } from '../components/WDTTKeys'
+import type { EntrySettings, Status, WDTTKeysData } from '../types'
+import { fmtBytes, usePoll } from '../util'
 
 interface ServicesData {
   settings: EntrySettings
@@ -24,6 +25,7 @@ export default function Services() {
   useEffect(() => {
     reload()
   }, [version, reload])
+  const keys = useWDTTKeys(!!data?.settings.wdtt_enabled)
   if (!data) return <Card loading />
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
@@ -35,11 +37,23 @@ export default function Services() {
       />
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <WDTTCard data={data} reload={reload} />
+          <WDTTCard
+            data={data}
+            keys={keys.data}
+            reload={() => {
+              reload()
+              keys.reload()
+            }}
+          />
         </Col>
         <Col xs={24} xl={12}>
           <XUICard data={data} reload={reload} />
         </Col>
+        {data.settings.wdtt_enabled && (
+          <Col span={24}>
+            <WDTTKeysCard data={keys.data} reload={keys.reload} />
+          </Col>
+        )}
       </Row>
     </Space>
   )
@@ -58,28 +72,31 @@ function useQueue(reload: () => void) {
   }
 }
 
-function WDTTCard({ data, reload }: { data: ServicesData; reload: () => void }) {
+function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysData | null; reload: () => void }) {
   const s = data.settings
   const st = data.status
+  const rt = keys?.runtime
   const [form] = Form.useForm()
-  const [secret, setSecret] = useState<Record<string, string> | null>(null)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [ownerOpen, setOwnerOpen] = useState(false)
+  const [ownerForm] = Form.useForm()
   const queue = useQueue(reload)
-  const { message } = App.useApp()
+  const mainHash = keys?.main_vk_hash
   useEffect(() => {
     form.setFieldsValue({ dtls_port: s.wdtt_dtls_port, dns: s.wdtt_dns })
   }, [s.wdtt_dtls_port, s.wdtt_dns, form])
+  useEffect(() => {
+    if (mainHash !== undefined) form.setFieldsValue({ vk_hash: mainHash })
+  }, [mainHash, form])
 
-  const submit = (enabled: boolean, rotate = false) => {
+  const submit = (enabled: boolean, extra: Record<string, unknown> = {}) => {
     const v = form.getFieldsValue()
-    setSecret(null)
-    queue(put('/api/services/wdtt', { enabled, dtls_port: v.dtls_port, dns: v.dns, rotate_password: rotate }))
+    queue(put('/api/services/wdtt', { enabled, dtls_port: v.dtls_port, dns: v.dns, vk_hash: v.vk_hash ?? '', ...extra }))
   }
-  const reveal = async () => {
-    try {
-      setSecret(await get('/api/services/wdtt/secret'))
-    } catch (e: any) {
-      message.error(e.message)
-    }
+  const setOwner = async () => {
+    const v = await ownerForm.validateFields()
+    setOwnerOpen(false)
+    submit(true, { password: v.password })
   }
 
   return (
@@ -92,8 +109,8 @@ function WDTTCard({ data, reload }: { data: ServicesData; reload: () => void }) 
       }
       extra={
         <Popconfirm
-          title={s.wdtt_enabled ? 'Удалить WDTT с сервера?' : 'Установить WDTT?'}
-          description={s.wdtt_enabled ? 'Клиенты отключатся. База клиентов сохранится.' : 'Первая установка собирает сервер из исходников (~2 минуты).'}
+          title={s.wdtt_enabled ? 'Удалить WDTT с сервера?' : 'Включить WDTT?'}
+          description={s.wdtt_enabled ? 'Клиенты отключатся. Ключи и устройства сохранятся.' : 'Сервер WDTT встроен в панель и запускается за несколько секунд.'}
           okText="Да"
           cancelText="Нет"
           onConfirm={() => submit(!s.wdtt_enabled)}
@@ -103,7 +120,7 @@ function WDTTCard({ data, reload }: { data: ServicesData; reload: () => void }) 
       }
     >
       <Typography.Paragraph type="secondary">
-        WireGuard поверх DTLS через медиасерверы VK — для клиентов WDTT (Android). Наружу открыт только UDP-порт DTLS, порт WireGuard слушает локально.
+        WireGuard поверх DTLS, замаскированный под медиатрафик звонка, через TURN-серверы VK — для стандартных клиентов WDTT. Наружу открыт только UDP-порт DTLS; на чужие пакеты сервер не отвечает.
       </Typography.Paragraph>
       <Form form={form} layout="vertical">
         <Row gutter={12}>
@@ -117,25 +134,46 @@ function WDTTCard({ data, reload }: { data: ServicesData; reload: () => void }) 
               <Input placeholder="1.1.1.1" />
             </Form.Item>
           </Col>
+          <Col span={24}>
+            <Form.Item name="vk_hash" label="Хеш звонка VK для ссылки владельца" extra="Ссылка на звонок или её последняя часть; несколько — через запятую.">
+              <Input placeholder="https://vk.com/call/join/…" />
+            </Form.Item>
+          </Col>
         </Row>
       </Form>
       {s.wdtt_enabled && (
         <Descriptions size="small" bordered column={1} style={{ marginBottom: 16 }}>
-          <Descriptions.Item label="Интерфейс wdtt0">{st.wdtt_iface ? <Tag color="success">есть</Tag> : <Tag color="error">нет</Tag>}</Descriptions.Item>
-          <Descriptions.Item label="Устройств">{st.wdtt_peers}</Descriptions.Item>
-          <Descriptions.Item label="Подключение">
-            {secret ? (
-              <Space orientation="vertical" size={0}>
-                <Typography.Text copyable className="mono">{`${secret.host}:${secret.port}`}</Typography.Text>
-                <Typography.Text copyable={{ text: secret.password }} className="mono">
-                  пароль: {secret.password}
-                </Typography.Text>
+          <Descriptions.Item label="Сейчас">
+            {rt ? (
+              <Space wrap size={4}>
+                <Tag color={rt.sessions ? 'processing' : 'default'}>сессий: {rt.sessions}</Tag>
+                <Tag>устройств: {rt.devices}</Tag>
+                {rt.main && (
+                  <Tag>
+                    владелец ↓{fmtBytes(rt.main.down_bytes)} ↑{fmtBytes(rt.main.up_bytes)}
+                  </Tag>
+                )}
               </Space>
             ) : (
-              <Button size="small" icon={<EyeOutlined />} onClick={reveal}>
-                Показать адрес и пароль
-              </Button>
+              <Typography.Text type="secondary">нет данных</Typography.Text>
             )}
+          </Descriptions.Item>
+          {rt && rt.auth_failures + rt.handshake_failures > 0 && (
+            <Descriptions.Item label="Отклонено">
+              <Typography.Text type="secondary">
+                чужих пакетов: {rt.auth_failures}, незавершённых рукопожатий: {rt.handshake_failures}
+              </Typography.Text>
+            </Descriptions.Item>
+          )}
+          <Descriptions.Item label="Владелец">
+            <Space wrap>
+              <Button size="small" icon={<LinkOutlined />} onClick={() => setLinkOpen(true)}>
+                Ссылка и пароль
+              </Button>
+              <Button size="small" icon={<EyeOutlined />} onClick={() => setOwnerOpen(true)}>
+                Задать свой пароль
+              </Button>
+            </Space>
           </Descriptions.Item>
         </Descriptions>
       )}
@@ -144,11 +182,28 @@ function WDTTCard({ data, reload }: { data: ServicesData; reload: () => void }) 
           Сохранить параметры
         </Button>
         {s.wdtt_enabled && (
-          <Popconfirm title="Сменить пароль WDTT?" description="Всем клиентам нужно будет ввести новый пароль." onConfirm={() => submit(true, true)} okText="Сменить" cancelText="Отмена">
-            <Button icon={<KeyOutlined />}>Сменить пароль</Button>
+          <Popconfirm
+            title="Сменить пароль владельца?"
+            description="Устройствам с паролем владельца нужно будет ввести новый. Ключи доступа не изменятся."
+            onConfirm={() => submit(true, { rotate_password: true })}
+            okText="Сменить"
+            cancelText="Отмена"
+          >
+            <Button icon={<KeyOutlined />}>Сменить пароль владельца</Button>
           </Popconfirm>
         )}
       </Space>
+      <LinkModal id={linkOpen ? 'main' : null} title="Подключение владельца" onClose={() => setLinkOpen(false)} />
+      <Modal open={ownerOpen} title="Пароль владельца" onCancel={() => setOwnerOpen(false)} onOk={setOwner} okText="Сохранить" cancelText="Отмена" destroyOnHidden>
+        <Typography.Paragraph type="secondary">
+          Например, пароль прежнего сервера WDTT — тогда его клиентам ничего не придётся менять. Пароль владельца не привязывается к устройству.
+        </Typography.Paragraph>
+        <Form form={ownerForm} layout="vertical" requiredMark={false}>
+          <Form.Item name="password" label="Пароль" rules={[{ required: true, pattern: /^[A-Za-z0-9._-]{16,128}$/, message: '16–128 символов: латиница, цифры, точка, дефис, подчёркивание' }]}>
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   )
 }

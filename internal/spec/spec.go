@@ -88,6 +88,41 @@ type WDTTSpec struct {
 	Password string `json:"password,omitempty"`
 	DNS      string `json:"dns,omitempty"`
 	TProxy   int    `json:"tproxy_port"`
+	// Keys are extra access passwords; each binds to the first device
+	// that connects with it. Password is the owner password.
+	Keys []WDTTKey `json:"keys,omitempty"`
+}
+
+// WDTTKey is an access password of the WDTT server.
+type WDTTKey struct {
+	ID          string `json:"id"`
+	Password    string `json:"password"`
+	ExpiresAt   int64  `json:"expires_at,omitempty"`
+	Disabled    bool   `json:"disabled,omitempty"`
+	DeviceEpoch int    `json:"device_epoch,omitempty"`
+}
+
+// WDTTRuntime is what the running WDTT server reports.
+type WDTTRuntime struct {
+	Version           string                    `json:"version"`
+	StartedAt         int64                     `json:"started_at"`
+	UpdatedAt         int64                     `json:"updated_at"`
+	Sessions          int                       `json:"sessions"`
+	Devices           int                       `json:"devices"`
+	HandshakeFailures int64                     `json:"handshake_failures"`
+	AuthFailures      int64                     `json:"auth_failures"`
+	StaleResets       int64                     `json:"stale_resets"`
+	Keys              map[string]WDTTKeyRuntime `json:"keys"`
+}
+
+// WDTTKeyRuntime describes one password of the running server.
+type WDTTKeyRuntime struct {
+	Sessions int    `json:"sessions"`
+	DeviceID string `json:"device_id,omitempty"`
+	DeviceIP string `json:"device_ip,omitempty"`
+	Up       int64  `json:"up_bytes"`
+	Down     int64  `json:"down_bytes"`
+	LastSeen int64  `json:"last_seen,omitempty"`
 }
 
 // XUISpec controls the optional 3x-ui panel.
@@ -115,10 +150,11 @@ type FirewallSpec struct {
 }
 
 var (
-	reUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	reKey  = regexp.MustCompile(`^mlkem768x25519plus\.(native|xorpub|random)\.[0-9a-z-]+\.[A-Za-z0-9_-]{43,}$`)
-	reName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
-	rePass = regexp.MustCompile(`^[A-Za-z0-9._-]{16,128}$`)
+	reUUID  = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	reKey   = regexp.MustCompile(`^mlkem768x25519plus\.(native|xorpub|random)\.[0-9a-z-]+\.[A-Za-z0-9_-]{43,}$`)
+	reName  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+	rePass  = regexp.MustCompile(`^[A-Za-z0-9._-]{16,128}$`)
+	reKeyID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 )
 
 func validPort(p int) bool { return p >= 1 && p <= 65535 }
@@ -193,6 +229,14 @@ func (s *NodeSpec) Validate() error {
 					return errors.New("invalid WDTT DNS")
 				}
 			}
+			ids := map[string]bool{"main": true}
+			pws := map[string]bool{w.Password: true}
+			for _, k := range w.Keys {
+				if !reKeyID.MatchString(k.ID) || ids[k.ID] || !rePass.MatchString(k.Password) || pws[k.Password] || k.DeviceEpoch < 0 {
+					return fmt.Errorf("invalid WDTT key %q", k.ID)
+				}
+				ids[k.ID], pws[k.Password] = true, true
+			}
 		}
 	}
 	f := s.Firewall
@@ -252,10 +296,11 @@ type Status struct {
 	FirewallPorts  []string `json:"firewall_ports"`
 	RevertPending  bool     `json:"revert_pending"`
 
-	WDTTInstalled bool   `json:"wdtt_installed"`
-	WDTTActive    string `json:"wdtt_active"`
-	WDTTIface     bool   `json:"wdtt_iface"`
-	WDTTPeers     int    `json:"wdtt_peers"`
+	WDTTInstalled bool         `json:"wdtt_installed"`
+	WDTTActive    string       `json:"wdtt_active"`
+	WDTTIface     bool         `json:"wdtt_iface"`
+	WDTTPeers     int          `json:"wdtt_peers"`
+	WDTT          *WDTTRuntime `json:"wdtt,omitempty"`
 
 	XUIInstalled bool   `json:"xui_installed"`
 	XUIActive    string `json:"xui_active"`

@@ -7,18 +7,14 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
 )
 
 const (
-	wdttBin     = LibDir + "/wdtt-server"
 	wdttUnit    = "wdtt-router-wdtt.service"
 	wdttDataDir = VarDir + "/wdtt"
-	wdttEnvPath = EtcDir + "/wdtt.env"
 	tproxyTable = "wdtt_router_wdtt"
 	tproxyMark  = "0x1"
 	tproxyRT    = "51888"
@@ -27,13 +23,16 @@ const (
 	WDTTNet     = "10.66.66.0/24"
 )
 
-func wdttUnitText(w spec.WDTTSpec) string {
-	dns := w.DNS
-	if dns == "" {
-		dns = "1.1.1.1"
-	}
-	// The password is passed through the environment file (mode 0600) so it
-	// is not stored in the unit; wdtt-server only accepts it as a flag.
+// WDTTConfigPath is the configuration of the built-in WDTT server.
+const (
+	WDTTConfigPath = EtcDir + "/wdtt.json"
+	WDTTStatusPath = "/run/wdtt-router/wdtt-status.json"
+)
+
+// The WDTT server is part of this binary. It runs as root only for the
+// network setup it needs (TUN device, its address): the unit keeps just
+// CAP_NET_ADMIN and a read-only view of the system.
+func wdttUnitText() string {
 	return fmt.Sprintf(`[Unit]
 Description=WDTT server (managed by wdtt-router)
 After=network-online.target wdtt-router-xray.service
@@ -41,19 +40,63 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=%s
-ExecStartPre=-/usr/sbin/ip link del %s
-ExecStartPre=%s agent tproxy-routes
-ExecStart=%s -listen 0.0.0.0:%d -wg-port %d -config-dir %s -password ${WDTT_PASSWORD} -dns %s
-ExecStartPost=-%s agent wdtt-post-start
-ExecStopPost=-/usr/sbin/ip link del %s
+ExecStartPre=+%[1]s agent tproxy-routes
+ExecStart=%[1]s wdtt-server --config %[2]s
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStopPost=-/usr/sbin/ip link del %[3]s
 Restart=always
-RestartSec=5
+RestartSec=3
 LimitNOFILE=65535
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+DeviceAllow=/dev/net/tun rw
+ReadWritePaths=%[4]s
+RuntimeDirectory=wdtt-router
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target
-`, wdttEnvPath, WDTTIface, SelfPath, wdttBin, w.DTLSPort, w.WGPort, wdttDataDir, dns, SelfPath, WDTTIface)
+`, SelfPath, WDTTConfigPath, WDTTIface, wdttDataDir)
+}
+
+type wdttConfig struct {
+	Listen       string         `json:"listen"`
+	DNS          string         `json:"dns"`
+	DataDir      string         `json:"data_dir"`
+	StatusFile   string         `json:"status_file"`
+	MainPassword string         `json:"main_password"`
+	Keys         []spec.WDTTKey `json:"keys"`
+}
+
+func renderWDTTConfig(w spec.WDTTSpec) []byte {
+	dns := w.DNS
+	if dns == "" {
+		dns = "1.1.1.1"
+	}
+	keys := w.Keys
+	if keys == nil {
+		keys = []spec.WDTTKey{}
+	}
+	b, _ := json.MarshalIndent(wdttConfig{Listen: fmt.Sprintf("0.0.0.0:%d", w.DTLSPort), DNS: dns, DataDir: wdttDataDir,
+		StatusFile: WDTTStatusPath, MainPassword: w.Password, Keys: keys}, "", " ")
+	return append(b, '\n')
 }
 
 // tproxyScript diverts everything WDTT clients send to the Internet into the
@@ -78,73 +121,40 @@ table inet %[1]s {
 `, tproxyTable, WDTTIface, port, tproxyMark)
 }
 
-// WDTT server source is GPL-3.0 software by amurcanov. It is built on the
-// entry server from a pinned commit with a pinned Go toolchain, both verified
-// by SHA-256, so the panel never redistributes the binary.
-const (
-	wdttCommit    = "7355598eae4a359d6874409f3437768f3548565b"
-	wdttSourceSHA = "beecfd0b26198e4113b30603c8b5213a621dc71716af7a819c3c419358f746d7"
-	goVersion     = "1.27.3"
-)
-
-var goSHA = map[string]string{
-	"amd64": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
-	"arm64": "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49",
-}
-
-func buildWDTT(ctx context.Context, changed *[]string) error {
-	marker := wdttBin + ".commit"
-	if b, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(b)) == wdttCommit && exists(wdttBin) {
-		return nil
+// removeOriginalWDTT cleans up what the original WDTT server (built by
+// earlier versions of this panel) left behind: its binary and the NAT and
+// FORWARD rules it inserted on every start.
+func removeOriginalWDTT(ctx context.Context) bool {
+	changed := false
+	for _, f := range []string{LibDir + "/wdtt-server", LibDir + "/wdtt-server.commit", EtcDir + "/wdtt.env"} {
+		if exists(f) {
+			removeIfExists(f)
+			changed = true
+		}
 	}
-	arch := runtime.GOARCH
-	sha, ok := goSHA[arch]
-	if !ok {
-		return fmt.Errorf("unsupported architecture %s", arch)
+	for _, args := range [][]string{{"-t", "nat", "-S", "POSTROUTING"}, {"-S", "FORWARD"}} {
+		out, _ := output(ctx, "iptables", args...)
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.Contains(line, "WDTT_MANAGED") || !strings.HasPrefix(line, "-A ") {
+				continue
+			}
+			del := append([]string{}, args[:len(args)-2]...)
+			del = append(del, "-D")
+			for _, f := range strings.Fields(strings.TrimPrefix(line, "-A ")) {
+				del = append(del, strings.Trim(f, "\""))
+			}
+			if run(ctx, "iptables", del...) == nil {
+				changed = true
+			}
+		}
 	}
-	dir := VarDir + "/build"
-	_ = os.RemoveAll(dir)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	for _, t := range [][]string{{"ip", "wdtt"}, {"inet", "wdtt"}} {
+		if run(ctx, "nft", "list", "table", t[0], t[1]) == nil {
+			_ = run(ctx, "nft", "delete", "table", t[0], t[1])
+			changed = true
+		}
 	}
-	defer os.RemoveAll(dir)
-	Logf("downloading Go %s toolchain to build WDTT (one time, ~75 MB)", goVersion)
-	if err := fetchToFile(ctx, "https://go.dev/dl/go"+goVersion+".linux-"+arch+".tar.gz", sha, dir+"/go.tgz"); err != nil {
-		return err
-	}
-	if err := run(ctx, "tar", "-xzf", dir+"/go.tgz", "-C", dir); err != nil {
-		return err
-	}
-	_ = os.Remove(dir + "/go.tgz")
-	Logf("downloading WDTT server source (commit %s)", wdttCommit[:12])
-	if err := fetchToFile(ctx, "https://codeload.github.com/amurcanov/proxy-turn-vk-android/tar.gz/"+wdttCommit, wdttSourceSHA, dir+"/src.tgz"); err != nil {
-		return err
-	}
-	if err := run(ctx, "tar", "-xzf", dir+"/src.tgz", "-C", dir); err != nil {
-		return err
-	}
-	src := dir + "/proxy-turn-vk-android-" + wdttCommit + "/app/src/main/assets/linux-server"
-	Logf("building wdtt-server")
-	c := exec.CommandContext(ctx, dir+"/go/bin/go", "build", "-trimpath", "-ldflags=-s -w", "-o", dir+"/wdtt-server", ".")
-	c.Dir = src
-	c.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + dir, "GOPATH=" + dir + "/gopath", "GOCACHE=" + dir + "/cache",
-		"GOTOOLCHAIN=local", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org"}
-	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("WDTT build failed: %s", tail(string(out), 500))
-	}
-	bin, err := os.ReadFile(dir + "/wdtt-server")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(LibDir, 0755); err != nil {
-		return err
-	}
-	if _, err := writeIfChanged(wdttBin, bin, 0755); err != nil {
-		return err
-	}
-	*changed = append(*changed, "wdtt: server built from commit "+wdttCommit[:12])
-	_, err = writeIfChanged(marker, []byte(wdttCommit+"\n"), 0644)
-	return err
+	return changed
 }
 
 func applyTProxyRouting(ctx context.Context) error {
@@ -181,7 +191,14 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 		if removeTProxy(ctx) {
 			removed = true
 		}
-		removeIfExists(wdttEnvPath)
+		if exists(WDTTConfigPath) {
+			removeIfExists(WDTTConfigPath)
+			removed = true
+		}
+		if removeOriginalWDTT(ctx) {
+			removed = true
+		}
+		removeIfExists(WDTTStatusPath)
 		_ = run(ctx, "ip", "link", "del", WDTTIface)
 		if removed {
 			*changed = append(*changed, "wdtt: removed (client data kept in "+wdttDataDir+")")
@@ -191,10 +208,7 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 	if unitExists("wdtt.service") {
 		return errors.New("a WDTT installation not managed by this panel (wdtt.service) exists; remove it first: systemctl disable --now wdtt.service")
 	}
-	if err := aptInstall(ctx, "nftables", "iproute2", "tar"); err != nil {
-		return err
-	}
-	if err := buildWDTT(ctx, changed); err != nil {
+	if err := aptInstall(ctx, "nftables", "iproute2"); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(wdttDataDir, 0700); err != nil {
@@ -211,26 +225,39 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 	if err := applyTProxyRouting(ctx); err != nil {
 		return err
 	}
-	envChanged, err := writeIfChanged(wdttEnvPath, []byte("WDTT_PASSWORD="+w.Password+"\n"), 0600)
+	cfgChanged, err := writeIfChanged(WDTTConfigPath, renderWDTTConfig(w), 0600)
 	if err != nil {
 		return err
 	}
-	unitChanged, err := installUnit(ctx, wdttUnit, wdttUnitText(w))
+	unitChanged, err := installUnit(ctx, wdttUnit, wdttUnitText())
 	if err != nil {
 		return err
 	}
-	if envChanged || unitChanged || unitState(wdttUnit) != "active" {
+	// The binary changes on every panel update; the unit runs this binary.
+	binChanged := wdttBinaryChanged()
+	switch {
+	case unitChanged || binChanged || unitState(wdttUnit) != "active":
 		Logf("starting WDTT server")
 		if err := systemctl(ctx, "restart", wdttUnit); err != nil {
 			return err
 		}
-		*changed = append(*changed, "wdtt: service applied")
+		*changed = append(*changed, "wdtt: service started")
+	case cfgChanged:
+		// Passwords changed: reload without dropping connected clients.
+		if err := systemctl(ctx, "reload", wdttUnit); err != nil {
+			return err
+		}
+		*changed = append(*changed, "wdtt: passwords reloaded")
+	}
+	if removeOriginalWDTT(ctx) {
+		*changed = append(*changed, "wdtt: original WDTT server removed")
 	}
 	if err := waitActive(ctx, wdttUnit); err != nil {
 		return err
 	}
 	for i := 0; i < 15; i++ {
 		if _, err := net.InterfaceByName(WDTTIface); err == nil {
+			markWDTTBinary()
 			return nil
 		}
 		if err := sleep(ctx, 1); err != nil {
@@ -240,52 +267,26 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 	return errors.New("WDTT started but interface wdtt0 did not appear")
 }
 
-// WDTTPostStart removes the NAT and FORWARD rules that wdtt-server inserts on
-// every start. Our kill switch already blocks forwarding; removing them keeps
-// the ruleset clean and makes intent explicit.
-func WDTTPostStart(ctx context.Context) {
-	for i := 0; i < 20; i++ {
-		_ = sleep(ctx, 1)
-		if _, err := net.InterfaceByName(WDTTIface); err == nil {
-			break
-		}
-	}
-	_ = sleep(ctx, 2)
-	for _, args := range [][]string{
-		{"-t", "nat", "-S", "POSTROUTING"},
-		{"-S", "FORWARD"},
-	} {
-		out, _ := output(ctx, "iptables", args...)
-		for _, line := range strings.Split(out, "\n") {
-			if !strings.Contains(line, "WDTT_MANAGED") || !strings.HasPrefix(line, "-A ") {
-				continue
-			}
-			del := append([]string{}, args[:len(args)-2]...)
-			del = append(del, "-D")
-			del = append(del, strings.Fields(strings.TrimPrefix(line, "-A "))...)
-			_ = run(ctx, "iptables", stripQuotes(del)...)
-		}
-	}
+// The service runs this binary; remember which build it was started with so
+// an update restarts it.
+const wdttBuildMarker = VarDir + "/wdtt/.server-version"
+
+func wdttBinaryChanged() bool {
+	b, err := os.ReadFile(wdttBuildMarker)
+	return err != nil || strings.TrimSpace(string(b)) != Version
 }
 
-func stripQuotes(a []string) []string {
-	out := make([]string, len(a))
-	for i, s := range a {
-		out[i] = strings.Trim(s, "\"")
-	}
-	return out
-}
+func markWDTTBinary() { _ = os.WriteFile(wdttBuildMarker, []byte(Version+"\n"), 0600) }
 
-func wdttPeers() int {
-	b, err := os.ReadFile(wdttDataDir + "/passwords.json")
+// wdttRuntime reads the status published by the running server.
+func wdttRuntime() *spec.WDTTRuntime {
+	b, err := os.ReadFile(WDTTStatusPath)
 	if err != nil {
-		return 0
+		return nil
 	}
-	var db struct {
-		Devices map[string]any `json:"devices"`
+	var r spec.WDTTRuntime
+	if json.Unmarshal(b, &r) != nil {
+		return nil
 	}
-	if json.Unmarshal(b, &db) != nil {
-		return 0
-	}
-	return len(db.Devices)
+	return &r
 }

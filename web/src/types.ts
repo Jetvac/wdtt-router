@@ -28,6 +28,7 @@ export interface Status {
   wdtt_active: string
   wdtt_iface: boolean
   wdtt_peers: number
+  wdtt?: WDTTRuntime
   xui_installed: boolean
   xui_active: string
   xui_ports: number[] | null
@@ -117,4 +118,63 @@ export interface Check {
   detail: string
   fix?: string
   fix_arg?: string
+}
+
+export interface WDTTKeyRuntime {
+  sessions: number
+  device_id?: string
+  device_ip?: string
+  up_bytes: number
+  down_bytes: number
+  last_seen?: number
+}
+
+export interface WDTTRuntime {
+  version: string
+  started_at: number
+  updated_at: number
+  sessions: number
+  devices: number
+  handshake_failures: number
+  auth_failures: number
+  keys: Record<string, WDTTKeyRuntime>
+}
+
+export interface WDTTKey {
+  id: string
+  name: string
+  vk_hash: string
+  expires_at: number
+  disabled: boolean
+  created_at: string
+  state: 'active' | 'disabled' | 'expired'
+  device_id: string
+  device_ip: string
+  sessions: number
+  up_bytes: number
+  down_bytes: number
+  last_seen: number
+}
+
+export interface WDTTKeysData {
+  keys: WDTTKey[]
+  limit: number
+  main_vk_hash: string
+  runtime?: {
+    sessions: number
+    devices: number
+    version: string
+    started_at: number
+    updated_at: number
+    auth_failures: number
+    handshake_failures: number
+    main?: WDTTKeyRuntime
+  }
+}
+
+export interface WDTTLink {
+  password: string
+  host: string
+  port: string
+  link?: string
 }

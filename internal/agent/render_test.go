@@ -2,10 +2,13 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
+	"github.com/Jetvac/wdtt-router/internal/wdtt"
 )
 
 func keys(t *testing.T) spec.HopKeys {
@@ -175,5 +178,28 @@ func TestTProxyScriptKillSwitch(t *testing.T) {
 	}
 	if !strings.Contains(s, "tproxy ip to 127.0.0.1:30001") {
 		t.Fatal("client traffic must be diverted to Xray")
+	}
+}
+
+// The configuration the agent writes must be accepted by the WDTT server.
+func TestWDTTConfigAccepted(t *testing.T) {
+	w := spec.WDTTSpec{Enabled: true, DTLSPort: 56000, WGPort: 56001, Password: "owner-password-0123", TProxy: 20001,
+		Keys: []spec.WDTTKey{{ID: "kabc", Password: "key-password-012345", ExpiresAt: 1900000000, DeviceEpoch: 2}}}
+	p := filepath.Join(t.TempDir(), "wdtt.json")
+	if err := os.WriteFile(p, renderWDTTConfig(w), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := wdtt.LoadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Listen != "0.0.0.0:56000" || c.MainPassword != w.Password || len(c.Keys) != 1 || c.Keys[0].DeviceEpoch != 2 || c.DNS != "1.1.1.1" {
+		t.Fatalf("%+v", c)
+	}
+	unit := wdttUnitText()
+	for _, want := range []string{"wdtt-server --config " + WDTTConfigPath, "CapabilityBoundingSet=CAP_NET_ADMIN", "ExecReload=", "ExecStartPre=+"} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("unit lacks %q", want)
+		}
 	}
 }
