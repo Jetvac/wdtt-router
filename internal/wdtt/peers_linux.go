@@ -50,7 +50,13 @@ func NewLinuxPeers(b *bind, serverPrivate string) (Peers, error) {
 	logger := &device.Logger{Verbosef: device.DiscardLogf, Errorf: func(f string, a ...any) {
 		// Peers have no endpoint until their client connects; WireGuard
 		// reports every attempt to reach them, which is expected noise.
-		if strings.Contains(f, "no known endpoint") || (len(a) > 0 && strings.Contains(fmt.Sprint(a[len(a)-1]), "no known endpoint")) {
+		// Likewise when the session it last used has closed: the client
+		// reconnects and WireGuard picks up the new session by itself.
+		msg := f
+		if len(a) > 0 {
+			msg += fmt.Sprint(a[len(a)-1])
+		}
+		if strings.Contains(msg, "no known endpoint") || strings.Contains(msg, "use of closed network connection") {
 			return
 		}
 		log.Printf("wireguard: "+f, a...)

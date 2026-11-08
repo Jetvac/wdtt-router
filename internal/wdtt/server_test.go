@@ -226,6 +226,13 @@ func TestServerProtocol(t *testing.T) {
 	}
 	c.close()
 
+	// Extra fields after the password are ignored, as by the original server.
+	c, _ = dialClient(t, addr, "owner-pass")
+	if r := c.ask(t, "GETCONF:9123|phone-1|owner-pass|extra"); r != conf {
+		t.Fatalf("extra GETCONF field broke the request: %q", r)
+	}
+	c.close()
+
 	// A password must match the key the session authenticated with.
 	g, err := dialClient(t, addr, "guest-pass")
 	if err != nil {

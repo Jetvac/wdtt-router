@@ -388,7 +388,9 @@ func cleanDeviceID(id string) string {
 
 // getconf answers "GETCONF:<local port>|<device id>|<password>".
 func (s *Server) getconf(sessionKey, body string) (string, bool) {
-	parts := strings.SplitN(strings.TrimSpace(body), "|", 3)
+	// Like the original server: split on every "|" and use the first three
+	// fields, so clients that append more fields keep working.
+	parts := strings.Split(strings.TrimSpace(body), "|")
 	for len(parts) < 3 {
 		parts = append(parts, "")
 	}
@@ -408,7 +410,12 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 			}
 			return "DENIED:expired", false
 		}
-		log.Printf("GETCONF from %q: wrong password", devID)
+		owner := "none"
+		if ok {
+			owner = k.ID
+		}
+		log.Printf("GETCONF from %q: wrong password (fields=%d, password length %d, matches key %s, session key %s)",
+			devID, len(parts), len(password), owner, sessionKey)
 		return "DENIED:wrong_password", false
 	}
 	now := time.Now()
