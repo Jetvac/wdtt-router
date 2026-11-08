@@ -27,6 +27,7 @@ import JobsPage from './pages/JobsPage'
 import Audit from './pages/Audit'
 import Settings from './pages/Settings'
 import Security from './pages/Security'
+import { UpdateBanner } from './components/Update'
 
 const { Header, Sider, Content } = Layout
 
@@ -247,6 +248,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </Dropdown>
           </Space>
         </Header>
+        <UpdateBanner />
         <Content className="app-content">
           {Page ? <Page /> : <Result status="404" title="404" subTitle="Такой страницы нет" extra={<Button onClick={() => navigate('/')}>На главную</Button>} />}
         </Content>

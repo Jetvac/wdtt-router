@@ -17,6 +17,13 @@ tmp=
 stopped=0
 backup=
 
+# Releases are signed: SHA256SUMS.sig is an Ed25519 signature of SHA256SUMS
+# made with the project's release key. A download whose signature does not
+# match this key is refused, even if it comes from the expected URL.
+RELEASE_PUBKEY='-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAfjR2SyY3AWyr2woh/LnVklQ73lKJ/9F4QGjYvV4THHI=
+-----END PUBLIC KEY-----'
+
 log() { printf '\033[1;34m•\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mОшибка:\033[0m %s\n' "$*" >&2; exit 1; }
 
@@ -36,7 +43,9 @@ uninstall  удаляет панель; настройки серверов и �
            (Mesh, звено цепочки, firewall, WDTT, 3x-ui, установленные панелью).
 
 Переменная WDTT_ROUTER_ARTIFACT_DIR позволяет установить из локального каталога
-с архивом wdtt-router-linux-<arch>.tar.gz и файлом SHA256SUMS.
+с архивом wdtt-router-linux-<arch>.tar.gz, SHA256SUMS и SHA256SUMS.sig.
+Подпись релиза проверяется всегда; WDTT_ROUTER_ALLOW_UNSIGNED=1 разрешает
+неподписанную сборку (только для собственных тестовых сборок).
 USAGE
 }
 
@@ -84,6 +93,7 @@ fetch() {
   tmp=$(mktemp -d)
   if [[ -n ${WDTT_ROUTER_ARTIFACT_DIR:-} ]]; then
     cp "$WDTT_ROUTER_ARTIFACT_DIR/$name" "$WDTT_ROUTER_ARTIFACT_DIR/SHA256SUMS" "$tmp/"
+    cp "$WDTT_ROUTER_ARTIFACT_DIR/SHA256SUMS.sig" "$tmp/" 2>/dev/null || true
   else
     command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl ca-certificates; }
     if [[ $VERSION == latest ]]; then
@@ -94,11 +104,25 @@ fetch() {
     log "Загружаю $name ($VERSION)"
     curl -fsSL --retry 3 -o "$tmp/$name" "$base/$name"
     curl -fsSL --retry 3 -o "$tmp/SHA256SUMS" "$base/SHA256SUMS"
+    curl -fsSL --retry 3 -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" || true
   fi
+  verify_signature
   (cd "$tmp" && grep -E "^[0-9a-f]{64} [ *]$name\$" SHA256SUMS | sha256sum -c --quiet -) || die "контрольная сумма архива не совпала"
   tar -xzf "$tmp/$name" -C "$tmp" wdtt-router
   chmod 0755 "$tmp/wdtt-router"
   "$tmp/wdtt-router" version >/dev/null || die "загруженный файл не запускается"
+}
+
+verify_signature() {
+  if [[ ! -s $tmp/SHA256SUMS.sig ]]; then
+    [[ ${WDTT_ROUTER_ALLOW_UNSIGNED:-} == 1 ]] && { log "ВНИМАНИЕ: сборка без подписи (WDTT_ROUTER_ALLOW_UNSIGNED=1)"; return; }
+    die "у релиза нет подписи SHA256SUMS.sig — установка отменена"
+  fi
+  command -v openssl >/dev/null || { apt-get update -qq && apt-get install -y -qq openssl; }
+  printf '%s\n' "$RELEASE_PUBKEY" >"$tmp/release.pub"
+  openssl pkeyutl -verify -pubin -inkey "$tmp/release.pub" -rawin -in "$tmp/SHA256SUMS" -sigfile "$tmp/SHA256SUMS.sig" >/dev/null 2>&1 \
+    || die "подпись релиза не совпала с ключом проекта — установка отменена"
+  log "Подпись релиза проверена"
 }
 
 write_unit() {
@@ -135,6 +159,12 @@ wait_up() {
 guess_ip() {
   ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'
 }
+
+# Keep a copy of the installer for rollbacks from the panel (not when the
+# script is piped into bash).
+if [[ $MODE == install || $MODE == update ]] && [[ -f ${BASH_SOURCE[0]:-} ]]; then
+  mkdir -p /var/lib/wdtt-router && install -m 0700 "${BASH_SOURCE[0]}" /var/lib/wdtt-router/install.sh 2>/dev/null || true
+fi
 
 case "$MODE" in
   install)

@@ -36,6 +36,20 @@ jobs:
           done
           cp install.sh out/
           (cd out && sha256sum wdtt-router-linux-*.tar.gz install.sh > SHA256SUMS)
+      - name: Sign
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::RELEASE_SIGNING_KEY is not set: refusing to publish an unsigned release"
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/release.pem"
+          openssl pkeyutl -sign -inkey "$RUNNER_TEMP/release.pem" -rawin -in out/SHA256SUMS -out out/SHA256SUMS.sig
+          rm -f "$RUNNER_TEMP/release.pem"
+          openssl pkeyutl -verify -pubin -inkey release-signing.pub -rawin -in out/SHA256SUMS -sigfile out/SHA256SUMS.sig
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -43,3 +57,4 @@ jobs:
             out/wdtt-router-linux-arm64.tar.gz
             out/install.sh
             out/SHA256SUMS
+            out/SHA256SUMS.sig

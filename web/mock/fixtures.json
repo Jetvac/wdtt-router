@@ -1318,5 +1318,18 @@
    "kind": "security",
    "text": "🔐 Вход в панель (admin) с нового адреса 203.0.113.7"
   }
- ]
+ ],
+ "/api/update": {
+  "current": "1.1.0",
+  "latest": {
+   "tag": "v1.2.0",
+   "name": "v1.2.0",
+   "notes": "- Защита серверов: SSH только по ключу, автообновления\n- Telegram-бот\n- Резервные копии",
+   "url": "https://github.com/Jetvac/wdtt-router/releases/tag/v1.2.0",
+   "published": "2026-11-08T12:00:00Z"
+  },
+  "available": true,
+  "checked": "2026-11-08T12:30:00Z",
+  "rollback": "1.0.0"
+ }
 }

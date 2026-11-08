@@ -28,17 +28,19 @@ type removeInput struct {
 
 func (a *App) handlers() map[string]jobFunc {
 	return map[string]jobFunc{
-		"node.add":     a.jobAddNode,
-		"node.enroll":  a.jobEnroll,
-		"node.leave":   a.jobLeave,
-		"node.remove":  a.jobRemove,
-		"node.apply":   a.jobApplyNode,
-		"apply.all":    a.jobApplyAll,
-		"chain.probe":  a.jobProbe,
-		"ssh.rotate":   a.jobRotateSSH,
-		"xui.reset":    a.jobXUIReset,
-		"status.all":   a.jobRefreshAll,
-		"agent.update": a.jobAgentUpdate,
+		"node.add":       a.jobAddNode,
+		"node.enroll":    a.jobEnroll,
+		"node.leave":     a.jobLeave,
+		"node.remove":    a.jobRemove,
+		"node.apply":     a.jobApplyNode,
+		"apply.all":      a.jobApplyAll,
+		"chain.probe":    a.jobProbe,
+		"ssh.rotate":     a.jobRotateSSH,
+		"panel.update":   a.jobPanelUpdate,
+		"panel.rollback": a.jobPanelRollback,
+		"xui.reset":      a.jobXUIReset,
+		"status.all":     a.jobRefreshAll,
+		"agent.update":   a.jobAgentUpdate,
 	}
 }
 

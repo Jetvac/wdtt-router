@@ -213,6 +213,8 @@ func (al botAlerts) wants(kind string) bool {
 		return al.Security
 	case EventJobs:
 		return al.Jobs
+	case EventUpdate:
+		return al.Security
 	}
 	return true
 }

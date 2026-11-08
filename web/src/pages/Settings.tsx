@@ -5,6 +5,7 @@ import { useJobs } from '../components/Jobs'
 import { usePoll } from '../util'
 import TelegramBot from '../components/TelegramBot'
 import BackupCard from '../components/BackupCard'
+import { UpdateCard } from '../components/Update'
 import type { Overview } from '../types'
 
 interface SettingsData {
@@ -67,6 +68,7 @@ export default function Settings() {
               Сохранить и применить
             </Button>
           </Card>
+          <UpdateCard />
           <BackupCard />
           <Card title="О панели">
             <Descriptions column={1} size="small" bordered>

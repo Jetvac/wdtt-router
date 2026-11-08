@@ -91,6 +91,7 @@ func (a *App) Serve(ctx context.Context, listen string) error {
 	}
 	go a.worker(ctx)
 	go a.refresher(ctx)
+	go a.updateChecker(ctx)
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
