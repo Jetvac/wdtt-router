@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -35,6 +36,17 @@ type NodeSpec struct {
 	Firewall FirewallSpec `json:"firewall"`
 	// Hardening of the host itself (SSH, updates).
 	Hardening HardeningSpec `json:"hardening"`
+	// Bot runs the Telegram bot on this node.
+	Bot *BotSpec `json:"bot,omitempty"`
+}
+
+// BotSpec is the Telegram bot. It needs no open port: it polls Telegram and
+// the panel's bot API (over Mesh, or locally on the panel's server).
+type BotSpec struct {
+	Token            string `json:"token"`             // Telegram bot token
+	PanelURL         string `json:"panel_url"`         // https://<panel Mesh address>:<port>
+	PanelFingerprint string `json:"panel_fingerprint"` // SHA-256 of the panel certificate
+	APIToken         string `json:"api_token"`         // the bot's key for the panel's bot API
 }
 
 // HardeningSpec tightens the host beyond the firewall.
@@ -169,9 +181,11 @@ type FirewallSpec struct {
 	// PanelPort is opened on the entry for the web panel; 0 disables.
 	PanelPort  int      `json:"panel_port,omitempty"`
 	PanelAllow []string `json:"panel_allow,omitempty"`
-	AllowPing  bool     `json:"allow_ping"`
-	ExtraTCP   []int    `json:"extra_tcp,omitempty"`
-	ExtraUDP   []int    `json:"extra_udp,omitempty"`
+	// PanelMesh are Mesh addresses allowed to the panel port (the bot).
+	PanelMesh []string `json:"panel_mesh,omitempty"`
+	AllowPing bool     `json:"allow_ping"`
+	ExtraTCP  []int    `json:"extra_tcp,omitempty"`
+	ExtraUDP  []int    `json:"extra_udp,omitempty"`
 }
 
 var (
@@ -180,6 +194,9 @@ var (
 	reName  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 	rePass  = regexp.MustCompile(`^[A-Za-z0-9._-]{16,128}$`)
 	reKeyID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+	// ReBotToken matches a Telegram bot token ("123456:ABC-...").
+	reBotToken    = regexp.MustCompile(`^[0-9]{5,15}:[A-Za-z0-9_-]{30,64}$`)
+	reFingerprint = regexp.MustCompile(`^([0-9A-F]{2}:){31}[0-9A-F]{2}$`)
 )
 
 func validPort(p int) bool { return p >= 1 && p <= 65535 }
@@ -246,6 +263,12 @@ func (s *NodeSpec) Validate() error {
 			return errors.New("invalid local proxy settings")
 		}
 	}
+	if b := s.Bot; b != nil {
+		u, err := url.Parse(b.PanelURL)
+		if !reBotToken.MatchString(b.Token) || err != nil || u.Scheme != "https" || u.Host == "" || !reFingerprint.MatchString(b.PanelFingerprint) || len(b.APIToken) < 32 {
+			return errors.New("invalid Telegram bot settings")
+		}
+	}
 	for _, k := range s.Hardening.AdminKeys {
 		if !ValidAuthorizedKey(k) {
 			return errors.New("invalid administrator SSH key")
@@ -281,6 +304,11 @@ func (s *NodeSpec) Validate() error {
 		}
 		if !f.SSHPublic && !s.Mesh.Enabled {
 			return errors.New("SSH must stay public on a node without Mesh")
+		}
+		for _, ip := range f.PanelMesh {
+			if !MeshIP(ip) {
+				return errors.New("invalid panel Mesh address")
+			}
 		}
 		for _, c := range append(append([]string{}, f.SSHAllow...), f.PanelAllow...) {
 			if !ValidCIDR(c) {
@@ -366,3 +394,6 @@ type ProbeResult struct {
 	UDPms  int64  `json:"udp_ms"`
 	Error  string `json:"error,omitempty"`
 }
+
+// ValidBotToken reports whether s looks like a Telegram bot token.
+func ValidBotToken(s string) bool { return reBotToken.MatchString(s) }

@@ -74,6 +74,7 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 		{"WDTT", func() error { return reconcileWDTT(ctx, s.Entry, &res.Changed) }},
 		{"3x-ui", func() error { return reconcileXUI(ctx, s.Entry, &res.Changed, res.Secrets) }},
 		{"hardening", func() error { return reconcileHardening(ctx, s.Hardening, &res.Changed) }},
+		{"Telegram bot", func() error { return reconcileBot(ctx, s.Bot, &res.Changed) }},
 		// The firewall goes last: until then the previous (closed) policy
 		// protects new services, and the dead-man timer starts only when
 		// nothing slow is left before the controller's confirmation.
@@ -161,6 +162,7 @@ func Uninstall(ctx context.Context, purge bool) ([]string, error) {
 	}
 	removeUnit(ctx, bootUnit)
 	removeHardening(ctx, &changed)
+	_ = reconcileBot(ctx, nil, &changed)
 	_ = reconcileMaintain(ctx, false)
 	removeUnit(ctx, "wdtt-router-xui-sync.timer")
 	removeUnit(ctx, "wdtt-router-xui-sync.service")

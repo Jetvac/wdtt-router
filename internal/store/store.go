@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS wdtt_keys (
 	device_epoch INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at DESC);
 `)
@@ -210,6 +211,9 @@ func (s *Store) DeleteSecret(name string) error {
 // Prune removes old history: audit entries and finished jobs older than 30 days.
 func (s *Store) Prune() error {
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := s.DB.Exec(`DELETE FROM events WHERE at < ?`, cutoff); err != nil {
+		return fmt.Errorf("prune events: %w", err)
+	}
 	if _, err := s.DB.Exec(`DELETE FROM audit WHERE at < ?`, cutoff); err != nil {
 		return fmt.Errorf("prune audit: %w", err)
 	}

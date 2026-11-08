@@ -60,6 +60,17 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("GET /api/jobs", a.authed(a.listJobs))
 	m.HandleFunc("GET /api/jobs/{id}", a.authed(a.getJob))
 	m.HandleFunc("GET /api/audit", a.authed(a.listAudit))
+	m.HandleFunc("GET /api/events", a.authed(a.listEvents))
+
+	m.HandleFunc("GET /api/bot", a.authed(a.getBot))
+	m.HandleFunc("PUT /api/bot", a.authed(a.putBot))
+	m.HandleFunc("POST /api/bot/code", a.authed(a.botCode))
+	m.HandleFunc("POST /api/bot/test", a.authed(a.botTest))
+	m.HandleFunc("DELETE /api/bot/chats/{id}", a.authed(a.deleteBotChat))
+	// The bot's own API, authenticated by its key (no session, no CSRF).
+	m.HandleFunc("GET /api/bot/sync", a.botAuthed(a.botSync))
+	m.HandleFunc("GET /api/bot/status", a.botAuthed(a.botStatus))
+	m.HandleFunc("POST /api/bot/pair", a.botAuthed(a.botPair))
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { apiError(w, 404, "не найдено") })
 	m.Handle("/", a.static())
 	return securityHeaders(m)
@@ -99,6 +110,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: "wdttr_session", Value: token, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: 12 * 3600})
 	a.Store.Audit(body.Username, "login", "", ip)
+	a.loginSeen(body.Username, ip)
 	writeJSON(w, 200, map[string]string{"username": body.Username, "csrf": csrf})
 }
 

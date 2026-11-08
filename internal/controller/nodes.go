@@ -21,26 +21,26 @@ import (
 
 // Node is a managed server.
 type Node struct {
-	ID          int64       `json:"id"`
-	Name        string      `json:"name"`
-	Host        string      `json:"host"`
-	SSHPort     int         `json:"ssh_port"`
-	Fingerprint string      `json:"fingerprint"`
-	Local       bool        `json:"local"`
-	MeshIP      string      `json:"mesh_ip"`
-	CFNodeID    string      `json:"cf_node_id"`
-	CFNodeName  string      `json:"cf_node_name"`
-	HopPort     int         `json:"hop_port"`
-	SSHPublic   bool        `json:"ssh_public"`
-	SSHAllow    []string    `json:"ssh_allow"`
-	AllowPing   bool        `json:"allow_ping"`
-	Firewall    bool        `json:"firewall"`
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Host        string   `json:"host"`
+	SSHPort     int      `json:"ssh_port"`
+	Fingerprint string   `json:"fingerprint"`
+	Local       bool     `json:"local"`
+	MeshIP      string   `json:"mesh_ip"`
+	CFNodeID    string   `json:"cf_node_id"`
+	CFNodeName  string   `json:"cf_node_name"`
+	HopPort     int      `json:"hop_port"`
+	SSHPublic   bool     `json:"ssh_public"`
+	SSHAllow    []string `json:"ssh_allow"`
+	AllowPing   bool     `json:"allow_ping"`
+	Firewall    bool     `json:"firewall"`
 	// Hardening is kept in the settings table (node:<id>:hardening).
 	Hardening spec.HardeningSpec `json:"hardening"`
 	Status    spec.Status        `json:"status"`
-	LastSeen    string      `json:"last_seen"`
-	LastError   string      `json:"last_error"`
-	CreatedAt   string      `json:"created_at"`
+	LastSeen  string             `json:"last_seen"`
+	LastError string             `json:"last_error"`
+	CreatedAt string             `json:"created_at"`
 }
 
 const nodeCols = `id,name,host,ssh_port,fingerprint,local,mesh_ip,cf_node_id,cf_node_name,hop_port,ssh_public,ssh_allow,allow_ping,firewall,status_json,last_seen,last_error,created_at`

@@ -43,6 +43,10 @@ type App struct {
 
 	loginMu    sync.Mutex
 	loginFails map[string][]time.Time
+
+	mon       monitor
+	pair      pairing
+	botHealth botHealth
 }
 
 // Open opens the panel state in dir.
@@ -262,7 +266,11 @@ func (a *App) loginAllowed(ip string) bool {
 func (a *App) loginFailed(ip string) {
 	a.loginMu.Lock()
 	a.loginFails[ip] = append(a.loginFails[ip], time.Now())
+	blocked := len(a.loginFails[ip]) == 8
 	a.loginMu.Unlock()
+	if blocked {
+		a.event(EventSecurity, "⚠️ Подбор пароля к панели с адреса %s: вход заблокирован на 15 минут", ip)
+	}
 }
 
 func (a *App) static() http.Handler {

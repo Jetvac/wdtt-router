@@ -160,7 +160,14 @@
      "xui_installed": true,
      "xui_active": "active",
      "xui_ports": [],
-     "problems": []
+     "problems": [],
+     "hardening": {
+      "ssh_password_auth": true,
+      "ssh_root_login": "yes",
+      "root_keys": 2,
+      "auto_updates": true,
+      "reboot_required": false
+     }
     },
     "last_seen": "2026-11-07T09:18:11Z",
     "last_error": "",
@@ -168,7 +175,14 @@
     "role": "entry",
     "in_chain": true,
     "position": 0,
-    "out_of_sync": false
+    "out_of_sync": false,
+    "hardening": {
+     "ssh_keys_only": false,
+     "auto_updates": true,
+     "admin_keys": [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl admin@laptop"
+     ]
+    }
    },
    {
     "id": 2,
@@ -222,7 +236,14 @@
      "xui_installed": false,
      "xui_active": "",
      "xui_ports": null,
-     "problems": []
+     "problems": [],
+     "hardening": {
+      "ssh_password_auth": false,
+      "ssh_root_login": "prohibit-password",
+      "root_keys": 2,
+      "auto_updates": true,
+      "reboot_required": true
+     }
     },
     "last_seen": "2026-11-07T09:18:13Z",
     "last_error": "",
@@ -230,7 +251,12 @@
     "role": "exit",
     "in_chain": true,
     "position": 1,
-    "out_of_sync": false
+    "out_of_sync": false,
+    "hardening": {
+     "ssh_keys_only": true,
+     "auto_updates": true,
+     "admin_keys": []
+    }
    }
   ],
   "plan_error": "",
@@ -316,7 +342,14 @@
      "xui_installed": true,
      "xui_active": "active",
      "xui_ports": [],
-     "problems": []
+     "problems": [],
+     "hardening": {
+      "ssh_password_auth": true,
+      "ssh_root_login": "yes",
+      "root_keys": 2,
+      "auto_updates": true,
+      "reboot_required": false
+     }
     },
     "last_seen": "2026-11-07T09:18:11Z",
     "last_error": "",
@@ -324,7 +357,14 @@
     "role": "entry",
     "in_chain": true,
     "position": 0,
-    "out_of_sync": false
+    "out_of_sync": false,
+    "hardening": {
+     "ssh_keys_only": false,
+     "auto_updates": true,
+     "admin_keys": [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl admin@laptop"
+     ]
+    }
    },
    {
     "id": 2,
@@ -378,7 +418,14 @@
      "xui_installed": false,
      "xui_active": "",
      "xui_ports": null,
-     "problems": []
+     "problems": [],
+     "hardening": {
+      "ssh_password_auth": false,
+      "ssh_root_login": "prohibit-password",
+      "root_keys": 2,
+      "auto_updates": true,
+      "reboot_required": true
+     }
     },
     "last_seen": "2026-11-07T09:18:13Z",
     "last_error": "",
@@ -386,7 +433,12 @@
     "role": "exit",
     "in_chain": true,
     "position": 1,
-    "out_of_sync": false
+    "out_of_sync": false,
+    "hardening": {
+     "ssh_keys_only": true,
+     "auto_updates": true,
+     "admin_keys": []
+    }
    }
   ],
   "plan_error": ""
@@ -1226,5 +1278,45 @@
   "password": "mockKeyPassword67890",
   "host": "203.0.113.10",
   "port": "56000"
- }
+ },
+ "/api/bot": {
+  "node_id": 2,
+  "has_token": true,
+  "chats": [
+   {
+    "id": 123456789,
+    "name": "Admin @admin",
+    "added": "2026-11-08T12:00:00Z"
+   }
+  ],
+  "alerts": {
+   "servers": true,
+   "chain": true,
+   "wdtt": true,
+   "security": true,
+   "jobs": false
+  },
+  "bot_seen": "2099-01-01T00:00:00Z",
+  "bot_telegram": "ok"
+ },
+ "/api/events": [
+  {
+   "id": 3,
+   "at": "2026-11-08T12:10:00Z",
+   "kind": "server",
+   "text": "🟢 Сервер exit-de снова на связи (был недоступен 3 мин)"
+  },
+  {
+   "id": 2,
+   "at": "2026-11-08T12:07:00Z",
+   "kind": "server",
+   "text": "🔴 Сервер exit-de не отвечает (timeout)"
+  },
+  {
+   "id": 1,
+   "at": "2026-11-08T11:00:00Z",
+   "kind": "security",
+   "text": "🔐 Вход в панель (admin) с нового адреса 203.0.113.7"
+  }
+ ]
 }

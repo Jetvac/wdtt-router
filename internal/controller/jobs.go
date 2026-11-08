@@ -140,6 +140,9 @@ func (a *App) runJob(ctx context.Context, id int64, kind string, nodeID int64) {
 	if err != nil {
 		status, msg = "failed", err.Error()
 		j.Log("ОШИБКА: %s", msg)
+		var title string
+		_ = a.Store.DB.QueryRow(`SELECT title FROM jobs WHERE id=?`, id).Scan(&title)
+		a.event(EventJobs, "❗ Задача «%s» завершилась с ошибкой: %s", title, short(msg, 300))
 	} else {
 		j.Log("Готово")
 	}

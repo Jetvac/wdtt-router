@@ -19,6 +19,7 @@ import (
 
 	"github.com/Jetvac/wdtt-router/internal/agent"
 	"github.com/Jetvac/wdtt-router/internal/auth"
+	"github.com/Jetvac/wdtt-router/internal/bot"
 	"github.com/Jetvac/wdtt-router/internal/controller"
 	"github.com/Jetvac/wdtt-router/internal/wdtt"
 	"github.com/Jetvac/wdtt-router/web"
@@ -58,6 +59,8 @@ func main() {
 		err = serve(ctx, os.Args[2:])
 	case "wdtt-server":
 		err = wdttServer(ctx, os.Args[2:])
+	case "telegram-bot":
+		err = telegramBot(ctx, os.Args[2:])
 	case "init":
 		err = initPanel(os.Args[2:])
 	case "reset-password":
@@ -138,6 +141,17 @@ func wdttServer(ctx context.Context, args []string) error {
 		}
 	}()
 	return s.Run(ctx)
+}
+
+func telegramBot(ctx context.Context, args []string) error {
+	fl := flag.NewFlagSet("telegram-bot", flag.ExitOnError)
+	cfg := fl.String("config", "/etc/wdtt-router/bot.json", "configuration file")
+	_ = fl.Parse(args)
+	c, err := bot.LoadConfig(*cfg)
+	if err != nil {
+		return err
+	}
+	return bot.New(c).Run(ctx)
 }
 
 func initPanel(args []string) error {

@@ -116,6 +116,13 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 	}
 	es := a.entrySettings()
 	plans := map[int64]*spec.NodeSpec{}
+	var entry Node
+	for _, n := range nodes {
+		if n.Local {
+			entry = n
+		}
+	}
+	botNode, hasBot := byID[a.botNodeID()]
 	for _, n := range nodes {
 		s := &spec.NodeSpec{Version: spec.Version, NodeID: n.ID, Role: spec.RoleIdle}
 		if n.CFNodeID != "" {
@@ -133,6 +140,10 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 			s.Role = spec.RoleEntry
 			s.Firewall.PanelPort = es.PanelPort
 			s.Firewall.PanelAllow = es.PanelAllow
+			// The bot on another server reaches the panel over Mesh.
+			if hasBot && !botNode.Local && botNode.MeshIP != "" {
+				s.Firewall.PanelMesh = []string{botNode.MeshIP}
+			}
 			e, err := a.entrySpec(es)
 			if err != nil {
 				return nil, err
@@ -168,6 +179,13 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 				next := byID[chain[i+1]]
 				s.Hop.Next = &spec.NextHop{Addr: next.MeshIP, Port: next.HopPort}
 			}
+		}
+		if hasBot && n.ID == botNode.ID {
+			b, err := a.botSpec(n, entry)
+			if err != nil {
+				return nil, err
+			}
+			s.Bot = b
 		}
 		if err := s.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", n.Name, err)

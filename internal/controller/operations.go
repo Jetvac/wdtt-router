@@ -468,9 +468,13 @@ func (a *App) refresher(ctx context.Context) {
 		nodes, _ := a.nodes()
 		for _, n := range nodes {
 			cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
-			_, _ = a.refreshStatus(cctx, n)
+			fresh, err := a.refreshStatus(cctx, n)
 			cancel()
+			if ctx.Err() == nil {
+				a.observe(ctx, fresh, err)
+			}
 		}
+		a.checkChain(ctx)
 		select {
 		case <-ctx.Done():
 			return

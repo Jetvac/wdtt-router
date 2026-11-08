@@ -89,6 +89,10 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 		mesh = append(mesh, in.HopPort)
 	}
 	fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr 100.96.0.0/12 tcp dport { %s } accept\n", MeshIface, joinPorts(mesh))
+	if f.PanelPort > 0 && len(f.PanelMesh) > 0 {
+		// The Telegram bot on another server reads the panel's bot API.
+		fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr { %s } tcp dport %d accept\n", MeshIface, strings.Join(f.PanelMesh, ", "), f.PanelPort)
+	}
 	fmt.Fprintf(&b, "\t\tiifname \"%s\" drop\n", MeshIface)
 	if f.SSHPublic {
 		fmt.Fprintf(&b, "\t\ttcp dport %d ct state new update @ssh_flood4 { ip saddr limit rate over 15/minute burst 30 packets } drop\n", f.SSHPort)

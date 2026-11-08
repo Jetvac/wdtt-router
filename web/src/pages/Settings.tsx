@@ -3,6 +3,8 @@ import { Alert, App, Button, Card, Col, Descriptions, Form, Input, Row, Select, 
 import { post, put } from '../api'
 import { useJobs } from '../components/Jobs'
 import { usePoll } from '../util'
+import TelegramBot from '../components/TelegramBot'
+import type { Overview } from '../types'
 
 interface SettingsData {
   panel_port: number
@@ -15,6 +17,7 @@ interface SettingsData {
 
 export default function Settings() {
   const { data, reload } = usePoll<SettingsData>('/api/settings')
+  const { data: ov } = usePoll<Overview>('/api/overview', 30000)
   const [allow, setAllow] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [pwForm] = Form.useForm()
@@ -80,6 +83,8 @@ export default function Settings() {
         </Space>
       </Col>
       <Col xs={24} lg={12}>
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+        <TelegramBot nodes={ov?.nodes || []} />
         <Card title="Смена пароля">
           <Form form={pwForm} layout="vertical" style={{ maxWidth: 400 }}>
             <Form.Item name="old" label="Текущий пароль" rules={[{ required: true, message: 'Введите текущий пароль' }]}>
@@ -101,6 +106,7 @@ export default function Settings() {
             </Button>
           </Form>
         </Card>
+        </Space>
       </Col>
     </Row>
   )
