@@ -181,11 +181,12 @@ type FirewallSpec struct {
 	// PanelPort is opened on the entry for the web panel; 0 disables.
 	PanelPort  int      `json:"panel_port,omitempty"`
 	PanelAllow []string `json:"panel_allow,omitempty"`
-	// PanelMesh are Mesh addresses allowed to the panel port (the bot).
-	PanelMesh []string `json:"panel_mesh,omitempty"`
-	AllowPing bool     `json:"allow_ping"`
-	ExtraTCP  []int    `json:"extra_tcp,omitempty"`
-	ExtraUDP  []int    `json:"extra_udp,omitempty"`
+	// PanelMeshOnly closes the panel port to the Internet: it is open only
+	// to Mesh addresses (devices of the team with Cloudflare WARP).
+	PanelMeshOnly bool  `json:"panel_mesh_only,omitempty"`
+	AllowPing     bool  `json:"allow_ping"`
+	ExtraTCP      []int `json:"extra_tcp,omitempty"`
+	ExtraUDP      []int `json:"extra_udp,omitempty"`
 }
 
 var (
@@ -304,11 +305,6 @@ func (s *NodeSpec) Validate() error {
 		}
 		if !f.SSHPublic && !s.Mesh.Enabled {
 			return errors.New("SSH must stay public on a node without Mesh")
-		}
-		for _, ip := range f.PanelMesh {
-			if !MeshIP(ip) {
-				return errors.New("invalid panel Mesh address")
-			}
 		}
 		for _, c := range append(append([]string{}, f.SSHAllow...), f.PanelAllow...) {
 			if !ValidCIDR(c) {

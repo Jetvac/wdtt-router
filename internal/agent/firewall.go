@@ -89,9 +89,11 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 		mesh = append(mesh, in.HopPort)
 	}
 	fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr 100.96.0.0/12 tcp dport { %s } accept\n", MeshIface, joinPorts(mesh))
-	if f.PanelPort > 0 && len(f.PanelMesh) > 0 {
-		// The Telegram bot on another server reads the panel's bot API.
-		fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr { %s } tcp dport %d accept\n", MeshIface, strings.Join(f.PanelMesh, ", "), f.PanelPort)
+	if f.PanelPort > 0 {
+		// The panel is always reachable inside Mesh (the team's devices with
+		// Cloudflare WARP, and the Telegram bot on another server); with
+		// PanelMeshOnly it is reachable only there.
+		fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr 100.96.0.0/12 tcp dport %d accept\n", MeshIface, f.PanelPort)
 	}
 	fmt.Fprintf(&b, "\t\tiifname \"%s\" drop\n", MeshIface)
 	if f.SSHPublic {
@@ -99,7 +101,7 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 		fmt.Fprintf(&b, "\t\ttcp dport %d ct state new update @ssh_flood6 { ip6 saddr limit rate over 15/minute burst 30 packets } drop\n", f.SSHPort)
 		allowRule(&b, fmt.Sprintf("tcp dport %d", f.SSHPort), f.SSHAllow)
 	}
-	if f.PanelPort > 0 {
+	if f.PanelPort > 0 && !f.PanelMeshOnly {
 		allowRule(&b, fmt.Sprintf("tcp dport %d", f.PanelPort), f.PanelAllow)
 	}
 	if in.WDTT != nil {

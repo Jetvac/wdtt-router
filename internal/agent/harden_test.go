@@ -1,6 +1,11 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/Jetvac/wdtt-router/internal/spec"
+)
 
 func TestWithTopBlock(t *testing.T) {
 	conf := "Include /etc/ssh/sshd_config.d/*.conf\nPermitRootLogin yes\n"
@@ -10,5 +15,23 @@ func TestWithTopBlock(t *testing.T) {
 	}
 	if off := withTopBlock(on, ""); off != conf {
 		t.Fatalf("removing the block changed the rest:\n%q", off)
+	}
+}
+
+func TestPanelMeshRules(t *testing.T) {
+	f := spec.FirewallSpec{Enabled: true, SSHPort: 22, SSHPublic: true, PanelPort: 8443}
+	r := RenderFirewall(f, FirewallInputs{})
+	mesh := `iifname "CloudflareWARP" ip saddr 100.96.0.0/12 tcp dport 8443 accept`
+	public := "\t\ttcp dport 8443 accept"
+	if !strings.Contains(r, mesh) || !strings.Contains(r, public) {
+		t.Fatalf("Mesh or public panel rule missing:\n%s", r)
+	}
+	if strings.Index(r, mesh) > strings.Index(r, `iifname "CloudflareWARP" drop`) {
+		t.Fatal("panel rule after the Mesh drop")
+	}
+	f.PanelMeshOnly = true
+	r = RenderFirewall(f, FirewallInputs{})
+	if !strings.Contains(r, mesh) || strings.Contains(r, public) {
+		t.Fatalf("Mesh-only panel rules wrong:\n%s", r)
 	}
 }

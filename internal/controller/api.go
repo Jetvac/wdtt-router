@@ -864,17 +864,29 @@ func (a *App) cfFix(w http.ResponseWriter, r *http.Request, s auth.Session) {
 func (a *App) getSettings(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	writeJSON(w, 200, map[string]any{
 		"panel_port": a.PanelPort, "panel_allow": a.entrySettings().PanelAllow, "your_ip": clientIP(r),
+		"mesh_only": a.entrySettings().PanelMeshOnly, "via_mesh": spec.MeshIP(clientIP(r)), "mesh_url": a.meshURL(),
 		"cert_fingerprint": a.CertFingerprint(), "version": agent.Version, "xray_version": agent.XrayVersion,
 	})
 }
 
 func (a *App) putPanel(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	var body struct {
-		Allow []string `json:"panel_allow"`
+		Allow    []string `json:"panel_allow"`
+		MeshOnly bool     `json:"mesh_only"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
+	if body.MeshOnly && !spec.MeshIP(clientIP(r)) {
+		u := a.meshURL()
+		if u == "" {
+			apiError(w, 400, "сервер панели ещё не в Mesh")
+			return
+		}
+		apiError(w, 400, "откройте панель через Mesh ("+u+") с устройства, подключённого к Cloudflare WARP вашей команды, и включите режим оттуда — иначе вы потеряете доступ")
+		return
+	}
+	_ = a.Store.SetSetting("panel_mesh_only", map[bool]string{true: "1", false: "0"}[body.MeshOnly])
 	clean := []string{}
 	for _, c := range body.Allow {
 		if c = strings.TrimSpace(c); c == "" {
@@ -886,7 +898,7 @@ func (a *App) putPanel(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		}
 		clean = append(clean, c)
 	}
-	if len(clean) > 0 && !allowedBy(clientIP(r), clean) {
+	if len(clean) > 0 && !body.MeshOnly && !allowedBy(clientIP(r), clean) {
 		apiError(w, 400, "ваш адрес "+clientIP(r)+" не входит в список — панель станет недоступна для вас")
 		return
 	}
@@ -933,4 +945,13 @@ func (a *App) listAudit(w http.ResponseWriter, r *http.Request, s auth.Session) 
 		}
 	}
 	writeJSON(w, 200, out)
+}
+
+// meshURL is the panel's address inside Cloudflare Mesh ("" if not in Mesh).
+func (a *App) meshURL() string {
+	n, err := a.localNode()
+	if err != nil || n.MeshIP == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://%s:%d/", n.MeshIP, a.PanelPort)
 }

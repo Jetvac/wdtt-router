@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, App, Button, Card, Col, Descriptions, Form, Input, Row, Select, Space, Typography } from 'antd'
+import { Alert, App, Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Typography } from 'antd'
 import { post, put } from '../api'
 import { useJobs } from '../components/Jobs'
 import { usePoll } from '../util'
@@ -15,25 +15,32 @@ interface SettingsData {
   cert_fingerprint: string
   version: string
   xray_version: string
+  mesh_only: boolean
+  via_mesh: boolean
+  mesh_url: string
 }
 
 export default function Settings() {
   const { data, reload } = usePoll<SettingsData>('/api/settings')
   const { data: ov } = usePoll<Overview>('/api/overview', 30000)
   const [allow, setAllow] = useState<string[]>([])
+  const [mode, setMode] = useState<'any' | 'list' | 'mesh'>('any')
   const [busy, setBusy] = useState(false)
   const [pwForm] = Form.useForm()
   const { message } = App.useApp()
   const { track } = useJobs()
   useEffect(() => {
-    if (data) setAllow(data.panel_allow)
+    if (data) {
+      setAllow(data.panel_allow)
+      setMode(data.mesh_only ? 'mesh' : data.panel_allow.length ? 'list' : 'any')
+    }
   }, [data])
   if (!data) return <Card loading />
 
   const saveAllow = async () => {
     setBusy(true)
     try {
-      const r = await put<{ job_id: number }>('/api/settings/panel', { panel_allow: allow })
+      const r = await put<{ job_id: number }>('/api/settings/panel', { panel_allow: mode === 'list' ? allow : [], mesh_only: mode === 'mesh' })
       track(r.job_id, () => reload())
     } catch (e: any) {
       message.error(e.message)
@@ -57,14 +64,37 @@ export default function Settings() {
       <Col xs={24} lg={12}>
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <Card title="Доступ к веб-панели">
+            <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+              <Radio value="any">Из любого адреса</Radio>
+              <Radio value="list">Только с указанных адресов</Radio>
+              <Radio value="mesh">Только через Cloudflare Mesh — порт закрыт для Интернета</Radio>
+            </Radio.Group>
             <Typography.Paragraph type="secondary">
-              Укажите адреса или подсети, с которых можно открыть панель (порт {data.panel_port}). Пусто — доступ отовсюду. Ваш текущий адрес: <Typography.Text code>{data.your_ip}</Typography.Text>
+              Порт панели {data.panel_port}. Ваш текущий адрес: <Typography.Text code>{data.your_ip}</Typography.Text>
+              {data.via_mesh ? ' (через Mesh)' : ''}
             </Typography.Paragraph>
-            <Select mode="tags" style={{ width: '100%' }} value={allow} onChange={setAllow} tokenSeparators={[',', ' ']} placeholder="Например, 203.0.113.5 или 198.51.100.0/24" />
-            {allow.length > 0 && !allow.includes(data.your_ip) && (
+            {mode === 'mesh' && (
+              <Alert
+                style={{ marginBottom: 12 }}
+                type={data.via_mesh ? 'info' : 'warning'}
+                showIcon
+                title={data.via_mesh ? 'Вы подключены через Mesh — режим можно включить' : 'Сначала откройте панель через Mesh'}
+                description={
+                  <>
+                    Панель будет открываться только с устройств, где запущен Cloudflare WARP с вашей командой Zero Trust, по адресу{' '}
+                    <Typography.Text code copyable>{data.mesh_url || 'сервер ещё не в Mesh'}</Typography.Text>.
+                    {!data.via_mesh && ' Включить режим можно только из такой сессии, чтобы не потерять доступ.'}
+                  </>
+                }
+              />
+            )}
+            {mode === 'list' && (
+              <Select mode="tags" style={{ width: '100%' }} value={allow} onChange={setAllow} tokenSeparators={[',', ' ']} placeholder="Например, 203.0.113.5 или 198.51.100.0/24" />
+            )}
+            {mode === 'list' && allow.length > 0 && !allow.includes(data.your_ip) && (
               <Alert style={{ marginTop: 12 }} type="warning" showIcon title="Ваш текущий адрес не входит в список" description="Панель не даст сохранить такой список, чтобы вы не потеряли доступ (если адрес не входит в одну из подсетей)." />
             )}
-            <Button style={{ marginTop: 12 }} type="primary" loading={busy} onClick={saveAllow}>
+            <Button style={{ marginTop: 12 }} type="primary" loading={busy} disabled={mode === 'mesh' && !data.via_mesh} onClick={saveAllow}>
               Сохранить и применить
             </Button>
           </Card>

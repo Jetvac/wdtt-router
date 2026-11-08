@@ -21,6 +21,8 @@ type EntrySettings struct {
 	XUIRoute     bool     `json:"xui_route_via_chain"`
 	PanelPort    int      `json:"panel_port"`
 	PanelAllow   []string `json:"panel_allow"`
+	// PanelMeshOnly: the panel is reachable only through Cloudflare Mesh.
+	PanelMeshOnly bool `json:"panel_mesh_only"`
 }
 
 func atoi(s string, def int) int {
@@ -47,6 +49,7 @@ func (a *App) entrySettings() EntrySettings {
 			s.PanelAllow = append(s.PanelAllow, c)
 		}
 	}
+	s.PanelMeshOnly = a.Store.Setting("panel_mesh_only", "0") == "1"
 	return s
 }
 
@@ -140,10 +143,7 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 			s.Role = spec.RoleEntry
 			s.Firewall.PanelPort = es.PanelPort
 			s.Firewall.PanelAllow = es.PanelAllow
-			// The bot on another server reaches the panel over Mesh.
-			if hasBot && !botNode.Local && botNode.MeshIP != "" {
-				s.Firewall.PanelMesh = []string{botNode.MeshIP}
-			}
+			s.Firewall.PanelMeshOnly = es.PanelMeshOnly
 			e, err := a.entrySpec(es)
 			if err != nil {
 				return nil, err
