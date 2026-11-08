@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/pprof"
@@ -19,8 +21,10 @@ import (
 
 	"github.com/Jetvac/wdtt-router/internal/agent"
 	"github.com/Jetvac/wdtt-router/internal/auth"
+	"github.com/Jetvac/wdtt-router/internal/backup"
 	"github.com/Jetvac/wdtt-router/internal/bot"
 	"github.com/Jetvac/wdtt-router/internal/controller"
+	"github.com/Jetvac/wdtt-router/internal/sshx"
 	"github.com/Jetvac/wdtt-router/internal/wdtt"
 	"github.com/Jetvac/wdtt-router/web"
 )
@@ -41,6 +45,8 @@ Agent (run by the panel on every server):
 
 WDTT server (run by systemd on the entry server):
   wdtt-router wdtt-server [--config /etc/wdtt-router/wdtt.json]   SIGHUP reloads passwords
+  wdtt-router restore [--public-host ADDR] FILE.wbk   restore a backup made in the panel
+  wdtt-router ssh-key                     print the panel public SSH key
 `, agent.Version)
 }
 
@@ -61,6 +67,14 @@ func main() {
 		err = wdttServer(ctx, os.Args[2:])
 	case "telegram-bot":
 		err = telegramBot(ctx, os.Args[2:])
+	case "restore":
+		err = restore(ctx, os.Args[2:])
+	case "ssh-key":
+		// The panel's public SSH key, to add to a server by hand.
+		var pub string
+		if pub, err = sshx.EnsureKey(defaultData + "/ssh_ed25519"); err == nil {
+			fmt.Println(pub + " wdtt-router-panel")
+		}
 	case "init":
 		err = initPanel(os.Args[2:])
 	case "reset-password":
@@ -152,6 +166,55 @@ func telegramBot(ctx context.Context, args []string) error {
 		return err
 	}
 	return bot.New(c).Run(ctx)
+}
+
+// restore puts a backup made in the panel back into place: on the same
+// server, or on a new one after "install.sh install".
+func restore(ctx context.Context, args []string) error {
+	fl := flag.NewFlagSet("restore", flag.ExitOnError)
+	data := fl.String("data", defaultData, "panel state directory")
+	host := fl.String("public-host", "", "public address of this server, if it differs from the backed-up one")
+	_ = fl.Parse(args)
+	if fl.NArg() != 1 {
+		return fmt.Errorf("usage: wdtt-router restore [--public-host ADDR] FILE.wbk")
+	}
+	raw, err := os.ReadFile(fl.Arg(0))
+	if err != nil {
+		return err
+	}
+	pass := os.Getenv("WDTT_ROUTER_BACKUP_PASSPHRASE")
+	if pass == "" {
+		fmt.Fprint(os.Stderr, "Пароль резервной копии: ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		pass = strings.TrimRight(line, "\r\n")
+	}
+	entries, err := backup.Open(raw, pass)
+	if err != nil {
+		return err
+	}
+	for _, unit := range []string{"wdtt-router", "wdtt-router-wdtt"} {
+		_ = exec.CommandContext(ctx, "systemctl", "stop", unit).Run()
+	}
+	if err := backup.Restore(entries, *data, agent.WDTTDataDir); err != nil {
+		return err
+	}
+	if *host != "" {
+		if err := os.WriteFile(*data+"/public_host", []byte(*host+"\n"), 0600); err != nil {
+			return err
+		}
+		// The certificate names the old address; a new one is made at start.
+		_ = os.Rename(*data+"/panel.crt", *data+"/panel.crt.before-restore")
+		_ = os.Rename(*data+"/panel.key", *data+"/panel.key.before-restore")
+	}
+	if err := exec.CommandContext(ctx, "systemctl", "start", "wdtt-router").Run(); err != nil {
+		return fmt.Errorf("start the panel: %w", err)
+	}
+	// The WDTT server, if this server runs one, with the restored keys.
+	if exec.CommandContext(ctx, "systemctl", "is-enabled", "--quiet", "wdtt-router-wdtt").Run() == nil {
+		_ = exec.CommandContext(ctx, "systemctl", "start", "wdtt-router-wdtt").Run()
+	}
+	fmt.Printf("Восстановлено файлов: %d. Панель запущена.\nОткройте её и нажмите «Применить ко всем серверам», чтобы вернуть серверы к сохранённому состоянию.\n", len(entries))
+	return nil
 }
 
 func initPanel(args []string) error {

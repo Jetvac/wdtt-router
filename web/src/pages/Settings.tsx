@@ -4,6 +4,7 @@ import { post, put } from '../api'
 import { useJobs } from '../components/Jobs'
 import { usePoll } from '../util'
 import TelegramBot from '../components/TelegramBot'
+import BackupCard from '../components/BackupCard'
 import type { Overview } from '../types'
 
 interface SettingsData {
@@ -66,6 +67,7 @@ export default function Settings() {
               Сохранить и применить
             </Button>
           </Card>
+          <BackupCard />
           <Card title="О панели">
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Версия">{data.version}</Descriptions.Item>

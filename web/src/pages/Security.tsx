@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Alert, Button, Card, Col, Empty, Row, Space, Table, Tag, Typography } from 'antd'
+import { Alert, App, Button, Card, Col, Empty, Popconfirm, Row, Space, Table, Tag, Typography } from 'antd'
 import { RowItem, Rows } from '../components/Rows'
 import { CheckCircleFilled, ExclamationCircleFilled } from '@ant-design/icons'
 import { navigate } from '../App'
@@ -7,6 +7,7 @@ import { useJobs } from '../components/Jobs'
 import type { NodeView, Overview } from '../types'
 import { RoleTag, usePoll } from '../util'
 import HardeningPanel from '../components/Hardening'
+import { post } from '../api'
 
 interface Finding {
   ok: boolean
@@ -37,7 +38,16 @@ function audit(n: NodeView, d: Overview): Finding[] {
 
 export default function Security() {
   const { data, reload } = usePoll<Overview>('/api/overview', 15000)
-  const { version } = useJobs()
+  const { version, track } = useJobs()
+  const { message } = App.useApp()
+  const rotate = async () => {
+    try {
+      const r = await post<{ job_id: number }>('/api/security/rotate-ssh-key')
+      track(r.job_id, () => reload())
+    } catch (e: any) {
+      message.error(e.message)
+    }
+  }
   useEffect(() => {
     reload()
   }, [version, reload])
@@ -52,6 +62,17 @@ export default function Security() {
         title={bad ? `Рекомендаций по усилению защиты: ${bad}` : 'Все рекомендации выполнены'}
         description="Каждый сервер пропускает только необходимые подключения: звено цепочки и SSH — только из Mesh, сервисы — только на сервере панели. Изменения firewall применяются с автоматическим откатом, если панель потеряет связь с сервером."
       />
+      <Card size="small">
+        <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
+          <span>
+            <Typography.Text strong>SSH-ключ панели</Typography.Text>
+            <Typography.Text type="secondary"> — им панель управляет остальными серверами. Замените, если файлы панели могли попасть в чужие руки.</Typography.Text>
+          </span>
+          <Popconfirm title="Заменить SSH-ключ панели?" description="Новый ключ будет добавлен и проверен на каждом сервере, только потом старый удалится." okText="Заменить" cancelText="Отмена" onConfirm={rotate}>
+            <Button>Заменить ключ</Button>
+          </Popconfirm>
+        </Space>
+      </Card>
       <Row gutter={[16, 16]}>
         {data.nodes.map((n) => (
           <Col xs={24} lg={12} key={n.id}>

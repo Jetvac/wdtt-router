@@ -15,6 +15,8 @@ import (
 const (
 	wdttUnit    = "wdtt-router-wdtt.service"
 	wdttDataDir = VarDir + "/wdtt"
+	// WDTTDataDir holds the WDTT server's keys and devices.
+	WDTTDataDir = wdttDataDir
 	tproxyTable = "wdtt_router_wdtt"
 	tproxyMark  = "0x1"
 	tproxyRT    = "51888"

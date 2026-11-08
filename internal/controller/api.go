@@ -61,6 +61,8 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("GET /api/jobs/{id}", a.authed(a.getJob))
 	m.HandleFunc("GET /api/audit", a.authed(a.listAudit))
 	m.HandleFunc("GET /api/events", a.authed(a.listEvents))
+	m.HandleFunc("POST /api/backup", a.authed(a.postBackup))
+	m.HandleFunc("POST /api/security/rotate-ssh-key", a.authed(a.rotateSSHKey))
 
 	m.HandleFunc("GET /api/bot", a.authed(a.getBot))
 	m.HandleFunc("PUT /api/bot", a.authed(a.putBot))

@@ -35,6 +35,7 @@ func (a *App) handlers() map[string]jobFunc {
 		"node.apply":   a.jobApplyNode,
 		"apply.all":    a.jobApplyAll,
 		"chain.probe":  a.jobProbe,
+		"ssh.rotate":   a.jobRotateSSH,
 		"xui.reset":    a.jobXUIReset,
 		"status.all":   a.jobRefreshAll,
 		"agent.update": a.jobAgentUpdate,
