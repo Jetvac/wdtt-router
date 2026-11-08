@@ -38,7 +38,7 @@ jobs:
           (cd out && sha256sum wdtt-router-linux-*.tar.gz install.sh > SHA256SUMS)
       - name: Sign
         env:
-          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY || secrets.MAIN }}
         run: |
           set -eu
           if [ -z "$SIGNING_KEY" ]; then
