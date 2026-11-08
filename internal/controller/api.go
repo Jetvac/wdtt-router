@@ -520,12 +520,20 @@ func (a *App) putWDTT(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		// clients of an earlier WDTT server already use.
 		Password *string `json:"password"`
 		VKHash   *string `json:"vk_hash"`
+		MTU      int     `json:"mtu"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	if body.DTLSPort == 0 {
 		body.DTLSPort = 56000
+	}
+	if body.MTU == 0 {
+		body.MTU = 1280
+	}
+	if body.MTU < 1200 || body.MTU > 1340 {
+		apiError(w, 400, "MTU туннеля: от 1200 до 1340")
+		return
 	}
 	if body.DTLSPort < 1024 || body.DTLSPort > 65534 || body.DTLSPort == a.PanelPort {
 		apiError(w, 400, "порт DTLS должен быть в диапазоне 1024–65534 и не совпадать с портом панели")
@@ -570,6 +578,7 @@ func (a *App) putWDTT(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	_ = a.Store.SetSetting("wdtt_dtls_port", strconv.Itoa(body.DTLSPort))
 	_ = a.Store.SetSetting("wdtt_wg_port", strconv.Itoa(body.DTLSPort+1))
 	_ = a.Store.SetSetting("wdtt_dns", strings.ReplaceAll(body.DNS, " ", ""))
+	_ = a.Store.SetSetting("wdtt_mtu", strconv.Itoa(body.MTU))
 	if body.Rotate {
 		_ = a.Store.PutSecret("wdtt_password", spec.NewPassword(20))
 	}

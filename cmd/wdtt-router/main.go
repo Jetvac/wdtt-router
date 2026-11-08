@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -110,6 +112,29 @@ func wdttServer(ctx context.Context, args []string) error {
 			if err := s.Reload(); err != nil {
 				fmt.Fprintln(os.Stderr, "reload failed:", err)
 			}
+		}
+	}()
+	// SIGUSR1 records a 20 s CPU profile next to the status file, for
+	// performance work on a live server.
+	usr1 := make(chan os.Signal, 1)
+	signal.Notify(usr1, syscall.SIGUSR1)
+	go func() {
+		for range usr1 {
+			path := filepath.Join(filepath.Dir(agent.WDTTStatusPath), "wdtt-cpu.pprof")
+			f, err := os.Create(path)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "profile:", err)
+				continue
+			}
+			if err := pprof.StartCPUProfile(f); err != nil {
+				f.Close()
+				fmt.Fprintln(os.Stderr, "profile:", err)
+				continue
+			}
+			time.Sleep(20 * time.Second)
+			pprof.StopCPUProfile()
+			f.Close()
+			fmt.Fprintln(os.Stderr, "CPU profile written to", path)
 		}
 	}()
 	return s.Run(ctx)

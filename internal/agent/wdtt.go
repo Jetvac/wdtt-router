@@ -45,7 +45,7 @@ ExecStart=%[1]s wdtt-server --config %[2]s
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStopPost=-/usr/sbin/ip link del %[3]s
 Restart=always
-RestartSec=3
+RestartSec=1
 LimitNOFILE=65535
 CapabilityBoundingSet=CAP_NET_ADMIN
 AmbientCapabilities=CAP_NET_ADMIN
@@ -83,6 +83,7 @@ type wdttConfig struct {
 	StatusFile   string         `json:"status_file"`
 	MainPassword string         `json:"main_password"`
 	Keys         []spec.WDTTKey `json:"keys"`
+	MTU          int            `json:"mtu,omitempty"`
 }
 
 func renderWDTTConfig(w spec.WDTTSpec) []byte {
@@ -95,7 +96,7 @@ func renderWDTTConfig(w spec.WDTTSpec) []byte {
 		keys = []spec.WDTTKey{}
 	}
 	b, _ := json.MarshalIndent(wdttConfig{Listen: fmt.Sprintf("0.0.0.0:%d", w.DTLSPort), DNS: dns, DataDir: wdttDataDir,
-		StatusFile: WDTTStatusPath, MainPassword: w.Password, Keys: keys}, "", " ")
+		StatusFile: WDTTStatusPath, MainPassword: w.Password, Keys: keys, MTU: w.MTU}, "", " ")
 	return append(b, '\n')
 }
 
@@ -243,7 +244,7 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 		}
 		*changed = append(*changed, "wdtt: service started")
 	case cfgChanged:
-		// Passwords changed: reload without dropping connected clients.
+		// Passwords or MTU changed: reload without dropping connected clients.
 		if err := systemctl(ctx, "reload", wdttUnit); err != nil {
 			return err
 		}

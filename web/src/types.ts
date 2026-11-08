@@ -93,6 +93,7 @@ export interface EntrySettings {
   wdtt_dtls_port: number
   wdtt_wg_port: number
   wdtt_dns: string
+  wdtt_mtu?: number
   xui_enabled: boolean
   xui_route_via_chain: boolean
   panel_port: number

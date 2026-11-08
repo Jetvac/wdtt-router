@@ -27,6 +27,8 @@ type Config struct {
 	StatusFile   string `json:"status_file"`
 	MainPassword string `json:"main_password"`
 	Keys         []Key  `json:"keys"`
+	// MTU of the tunnel (wdtt0 and the clients' config); 0 means TunMTU.
+	MTU int `json:"mtu,omitempty"`
 }
 
 // Key is an access password issued from the panel. Like in the original
@@ -58,6 +60,9 @@ func LoadConfig(path string) (*Config, error) {
 	if c.DNS == "" {
 		c.DNS = "1.1.1.1"
 	}
+	if c.MTU == 0 {
+		c.MTU = TunMTU
+	}
 	return &c, c.Validate()
 }
 
@@ -68,6 +73,9 @@ func (c *Config) Validate() error {
 	}
 	if c.DataDir == "" {
 		return errors.New("data_dir is required")
+	}
+	if c.MTU != 0 && (c.MTU < MinMTU || c.MTU > MaxMTU) {
+		return fmt.Errorf("mtu must be %d..%d", MinMTU, MaxMTU)
 	}
 	for _, d := range strings.Split(c.DNS, ",") {
 		if net.ParseIP(strings.TrimSpace(d)) == nil {
@@ -232,7 +240,7 @@ func (st *state) freeIP() string {
 
 // clientConfig is the WireGuard configuration returned to GETCONF, in the
 // exact form the standard client parses.
-func clientConfig(serverPublic, clientPrivate, clientIP, dns, localPort string) string {
+func clientConfig(serverPublic, clientPrivate, clientIP, dns, localPort string, mtu int) string {
 	return fmt.Sprintf(`[Interface]
 PrivateKey = %s
 Address = %s/32
@@ -243,8 +251,18 @@ MTU = %d
 PublicKey = %s
 AllowedIPs = 0.0.0.0/0
 Endpoint = 127.0.0.1:%s
-PersistentKeepalive = 25`, clientPrivate, clientIP, dns, TunMTU, serverPublic, localPort)
+PersistentKeepalive = 25`, clientPrivate, clientIP, dns, mtu, serverPublic, localPort)
 }
 
-// TunMTU is the MTU of wdtt0 and of the client tunnel.
-const TunMTU = 1280
+// TunMTU is the default MTU of wdtt0 and of the client tunnel.
+//
+// A full tunnel packet grows by about 155 bytes on the way (WireGuard 32,
+// DTLS 37, RTP wrap 28 + padding up to 24 for audio or 60 for video, UDP/IP
+// 28, TURN 4), so 1340 is the most that still fits a 1500-byte path in
+// audio mode. The original client raises anything below 1280 to 1280 on
+// its own interface; the server still sends no more than MTU.
+const (
+	TunMTU = 1280
+	MinMTU = 1200
+	MaxMTU = 1340
+)

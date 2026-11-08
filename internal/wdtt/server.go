@@ -25,11 +25,19 @@ import (
 // userspace WireGuard device on the wdtt0 TUN interface.
 type Peers interface {
 	Set(peers map[string]string) error // public key (base64) -> client IP
+	// Kick starts a WireGuard handshake with a peer through the given
+	// endpoint (a session address), unless the peer has a fresh one.
+	// retry also clears the peer's handshake state first, which WireGuard
+	// otherwise keeps for 5 s before it sends another initiation.
+	Kick(public, endpoint string, retry bool) error
+	// Fresh reports whether the peer completed a handshake recently.
+	Fresh(public string) bool
+	SetMTU(mtu int) error
 	Close() error
 }
 
 // PeersFactory creates the WireGuard device on top of the bind.
-type PeersFactory func(b *bind, serverPrivate string) (Peers, error)
+type PeersFactory func(b *bind, serverPrivate string, mtu int) (Peers, error)
 
 const (
 	handshakeTimeout = 20 * time.Second
@@ -38,6 +46,8 @@ const (
 	maxHandshakes    = 64
 	keepaliveByte    = 0xFF
 	deviceTTL        = 180 * 24 * time.Hour
+	kickInterval     = 20 * time.Second
+	kickTries        = 3
 )
 
 // Server is a WDTT server.
@@ -62,6 +72,10 @@ type Server struct {
 	handshakeFailed atomic.Int64
 	sem             chan struct{}
 	serving         sync.WaitGroup
+
+	kmu    sync.Mutex
+	kicked map[string]time.Time // device -> last server-initiated handshake
+	kicks  atomic.Int64
 }
 
 type counter struct{ up, down atomic.Int64 }
@@ -131,7 +145,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.cfg, s.st, s.byPass, s.byID, s.started = cfg, st, byPass, byID, time.Now()
 	s.bind = newBind()
-	if s.peers, err = s.newPeers(s.bind, st.ServerPrivate); err != nil {
+	if s.peers, err = s.newPeers(s.bind, st.ServerPrivate, cfg.MTU); err != nil {
 		return fmt.Errorf("WireGuard: %w", err)
 	}
 	defer s.peers.Close()
@@ -161,6 +175,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	context.AfterFunc(ctx, func() { _ = l.Close() })
 	log.Printf("WDTT server %s listening on udp %s, %d passwords, %d devices", s.Version, cfg.Listen, len(ring), len(st.Devices))
+	logResets(s.mux.resetPrevious(sessionsFile(cfg.StatusFile)))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -187,6 +202,8 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	_ = s.mux.Close()
 	wg.Wait()
+	// A planned stop has told every client already.
+	_ = os.Remove(sessionsFile(cfg.StatusFile))
 	s.mu.Lock()
 	s.flushLocked()
 	s.mu.Unlock()
@@ -237,6 +254,13 @@ func (s *Server) Reload() error {
 		return errors.New("listen address and data directory need a restart")
 	}
 	old := s.byPass
+	if cfg.MTU != s.cfg.MTU {
+		// Clients get the new MTU with their next GETCONF (reconnect).
+		if err := s.peers.SetMTU(cfg.MTU); err != nil {
+			return err
+		}
+		log.Printf("tunnel MTU %d -> %d", s.cfg.MTU, cfg.MTU)
+	}
 	s.cfg, s.byPass, s.byID = cfg, byPass, byID
 	s.mux.setKeys(ring)
 	// Close sessions whose password is gone, changed or no longer active.
@@ -329,7 +353,7 @@ func (s *Server) serve(ctx context.Context, c *dtls.Conn) {
 		s.handshakeFailed.Add(1)
 		return
 	}
-	sess := &session{c: c, keyID: vc.keyID, cnt: s.counter(vc.keyID)}
+	sess := &session{c: c, keyID: vc.keyID, cnt: s.counter(vc.keyID), opened: time.Now().UnixNano()}
 	sess.ep = &endpoint{s: sess, addr: raddr}
 	sess.lastRx.Store(time.Now().UnixNano())
 	s.bind.add(sess)
@@ -348,10 +372,11 @@ func (s *Server) serve(ctx context.Context, c *dtls.Conn) {
 	}
 	msg := buf[:n]
 	if body, ok := strings.CutPrefix(string(msg), "GETCONF:"); ok {
-		reply, ok := s.getconf(sess.keyID, body)
+		reply, dev, ok := s.getconf(sess.keyID, body)
 		if _, err := c.Write([]byte(reply)); err != nil || !ok {
 			return
 		}
+		sess.dev = dev
 		msg = nil
 	} else if string(msg) == "READY" {
 		if _, err := c.Write([]byte("READY_OK")); err != nil {
@@ -363,6 +388,12 @@ func (s *Server) serve(ctx context.Context, c *dtls.Conn) {
 	for {
 		if len(msg) > 0 && !(len(msg) == 1 && msg[0] == keepaliveByte) {
 			sess.cnt.up.Add(int64(len(msg)))
+			// WireGuard data (type 4) on a new session: the client holds
+			// keys. If the server has no fresh handshake with it, those
+			// keys are from before a restart; start a new one at once.
+			if msg[0] == 4 && sess.dev != "" && !sess.checked.Swap(true) {
+				go s.kick(sess.dev, raddr.String())
+			}
 			s.bind.deliver(sess, msg)
 		}
 		if now := time.Now(); now.Sub(lastDeadline) > 10*time.Second {
@@ -386,8 +417,61 @@ func cleanDeviceID(id string) string {
 	return id
 }
 
-// getconf answers "GETCONF:<local port>|<device id>|<password>".
-func (s *Server) getconf(sessionKey, body string) (string, bool) {
+// kick has the server start the WireGuard handshake with a device whose
+// client still sends data with keys the server does not have (the server
+// restarted). On its own the client's WireGuard notices only after about
+// 15 s. Every client sends GETCONF on each new session, so the server
+// knows which device the session belongs to and where to reach it. A
+// client that starts afresh sends a handshake first, not data, and is left
+// alone so that two handshakes do not cross.
+func (s *Server) kick(dev, endpoint string) {
+	s.kmu.Lock()
+	if s.kicked == nil {
+		s.kicked = map[string]time.Time{}
+	}
+	if time.Since(s.kicked[dev]) < kickInterval {
+		s.kmu.Unlock()
+		return
+	}
+	s.kicked[dev] = time.Now()
+	s.kmu.Unlock()
+	s.mu.Lock()
+	d := s.st.Devices[dev]
+	peers := s.peers
+	s.mu.Unlock()
+	if d == nil || peers == nil {
+		return
+	}
+	// The handshake answer may go out on one of the client's sessions
+	// that is itself still stale; try again through the newest session.
+	for try := 0; try < kickTries; try++ {
+		if try > 0 {
+			if ep := s.bind.newestFor(dev); ep != "" {
+				endpoint = ep
+			}
+		}
+		if err := peers.Kick(d.Public, endpoint, try > 0); err != nil {
+			log.Printf("WireGuard handshake with %q: %v", dev, err)
+			return
+		}
+		time.Sleep(time.Second)
+		fresh := peers.Fresh(d.Public)
+		if os.Getenv("WDTT_DEBUG_KICK") != "" {
+			log.Printf("kick %q try %d via %s: fresh=%v", dev, try, endpoint, fresh)
+		}
+		if fresh {
+			break
+		}
+	}
+	s.kicks.Add(1)
+	if s.kicks.Load() <= 50 || s.kicks.Load()%100 == 0 {
+		log.Printf("device %q is back: WireGuard handshake checked (%d so far)", dev, s.kicks.Load())
+	}
+}
+
+// getconf answers "GETCONF:<local port>|<device id>|<password>" and
+// returns the device on success.
+func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 	// Like the original server: split on every "|" and use the first three
 	// fields, so clients that append more fields keep working.
 	parts := strings.Split(strings.TrimSpace(body), "|")
@@ -406,9 +490,9 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 	if !ok || password == "" || k.ID != sessionKey {
 		if old, known := s.knownInactiveLocked(password); known {
 			if old.Disabled {
-				return "DENIED:deactivated", false
+				return "DENIED:deactivated", "", false
 			}
-			return "DENIED:expired", false
+			return "DENIED:expired", "", false
 		}
 		owner := "none"
 		if ok {
@@ -416,7 +500,7 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 		}
 		log.Printf("GETCONF from %q: wrong password (fields=%d, password length %d, matches key %s, session key %s)",
 			devID, len(parts), len(password), owner, sessionKey)
-		return "DENIED:wrong_password", false
+		return "DENIED:wrong_password", "", false
 	}
 	now := time.Now()
 	ks := s.st.Keys[k.ID]
@@ -427,7 +511,7 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 	if k.ID != MainKeyID {
 		if ks.DeviceID != "" && ks.DeviceID != devID {
 			log.Printf("GETCONF key %s: bound to another device, request from %q", k.ID, devID)
-			return "DENIED:device_mismatch", false
+			return "DENIED:device_mismatch", "", false
 		}
 		if ks.DeviceID == "" {
 			ks.DeviceID = devID
@@ -441,7 +525,7 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 		priv, pub, err := newKeyPair()
 		if ip == "" || err != nil {
 			log.Printf("GETCONF %q: no free client address", devID)
-			return "NOCONF", true
+			return "NOCONF", "", true
 		}
 		d = &deviceState{IP: ip, Private: priv, Public: pub}
 		s.st.Devices[devID] = d
@@ -451,9 +535,9 @@ func (s *Server) getconf(sessionKey, body string) (string, bool) {
 	s.dirty = true
 	if err := s.syncPeersLocked(); err != nil {
 		log.Printf("WireGuard peers: %v", err)
-		return "NOCONF", true
+		return "NOCONF", "", true
 	}
-	return clientConfig(s.st.ServerPublic, d.Private, d.IP, s.cfg.DNS, port), true
+	return clientConfig(s.st.ServerPublic, d.Private, d.IP, s.cfg.DNS, port, s.cfg.MTU), devID, true
 }
 
 func (s *Server) knownInactiveLocked(password string) (Key, bool) {
@@ -487,8 +571,10 @@ func (s *Server) housekeeping(ctx context.Context) {
 			s.flushLocked()
 		}
 		st := s.statusLocked()
+		path := s.cfg.StatusFile
 		s.mu.Unlock()
-		writeStatus(s.cfg.StatusFile, st)
+		writeStatus(path, st)
+		writeSessions(sessionsFile(path), s.mux.live())
 	}
 }
 
@@ -640,6 +726,9 @@ type session struct {
 	dead    atomic.Bool
 	lastIdx atomic.Uint32
 	lastRx  atomic.Int64
+	dev     string      // device that sent GETCONF on this session
+	opened  int64       // unix nanoseconds
+	checked atomic.Bool // the device's WireGuard state was checked
 	wmu     sync.Mutex
 	wdl     time.Time // last write-deadline refresh, guarded by wmu
 }

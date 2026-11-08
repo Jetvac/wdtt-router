@@ -36,7 +36,7 @@ const (
 	maxDatagram    = 2048
 	connQueue      = 512
 	acceptBacklog  = 256
-	trialsPerIP    = 64 // unknown-source decrypt attempts per IP per second
+	trialsPerIP    = 256 // unknown-source decrypt attempts per IP per second (VK relays are shared by many clients)
 	maxConnections = 8192
 )
 

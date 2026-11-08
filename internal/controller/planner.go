@@ -16,6 +16,7 @@ type EntrySettings struct {
 	WDTTDTLSPort int      `json:"wdtt_dtls_port"`
 	WDTTWGPort   int      `json:"wdtt_wg_port"`
 	WDTTDNS      string   `json:"wdtt_dns"`
+	WDTTMTU      int      `json:"wdtt_mtu"`
 	XUIEnabled   bool     `json:"xui_enabled"`
 	XUIRoute     bool     `json:"xui_route_via_chain"`
 	PanelPort    int      `json:"panel_port"`
@@ -35,6 +36,7 @@ func (a *App) entrySettings() EntrySettings {
 		WDTTDTLSPort: atoi(a.Store.Setting("wdtt_dtls_port", "56000"), 56000),
 		WDTTWGPort:   atoi(a.Store.Setting("wdtt_wg_port", "56001"), 56001),
 		WDTTDNS:      a.Store.Setting("wdtt_dns", "1.1.1.1"),
+		WDTTMTU:      atoi(a.Store.Setting("wdtt_mtu", "1280"), 1280),
 		XUIEnabled:   a.Store.Setting("xui_enabled", "0") == "1",
 		XUIRoute:     a.Store.Setting("xui_route", "1") == "1",
 		PanelPort:    a.PanelPort,
@@ -204,7 +206,7 @@ func (a *App) entrySpec(es EntrySettings) (*spec.EntrySpec, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.WDTT = spec.WDTTSpec{Enabled: true, DTLSPort: es.WDTTDTLSPort, WGPort: es.WDTTWGPort, Password: wp, DNS: es.WDTTDNS, TProxy: tproxy, Keys: keys}
+		e.WDTT = spec.WDTTSpec{Enabled: true, DTLSPort: es.WDTTDTLSPort, WGPort: es.WDTTWGPort, Password: wp, DNS: es.WDTTDNS, TProxy: tproxy, Keys: keys, MTU: wdttMTU(es.WDTTMTU)}
 	}
 	return e, nil
 }
@@ -214,4 +216,13 @@ func (a *App) entrySpec(es EntrySettings) (*spec.EntrySpec, error) {
 func planHash(s *spec.NodeSpec) string {
 	b, _ := json.MarshalIndent(s, "", "  ")
 	return specHashBytes(b)
+}
+
+// wdttMTU leaves the default (1280) out of the spec, so that servers set up
+// before the setting existed keep an unchanged configuration.
+func wdttMTU(v int) int {
+	if v == 1280 {
+		return 0
+	}
+	return v
 }

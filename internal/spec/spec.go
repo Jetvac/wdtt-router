@@ -88,6 +88,8 @@ type WDTTSpec struct {
 	Password string `json:"password,omitempty"`
 	DNS      string `json:"dns,omitempty"`
 	TProxy   int    `json:"tproxy_port"`
+	// MTU of the tunnel sent to clients; 0 means the default (1280).
+	MTU int `json:"mtu,omitempty"`
 	// Keys are extra access passwords; each binds to the first device
 	// that connects with it. Password is the owner password.
 	Keys []WDTTKey `json:"keys,omitempty"`
@@ -228,6 +230,9 @@ func (s *NodeSpec) Validate() error {
 				if d != "" && net.ParseIP(strings.TrimSpace(d)) == nil {
 					return errors.New("invalid WDTT DNS")
 				}
+			}
+			if w.MTU != 0 && (w.MTU < 1200 || w.MTU > 1340) {
+				return errors.New("WDTT MTU must be 1200..1340")
 			}
 			ids := map[string]bool{"main": true}
 			pws := map[string]bool{w.Password: true}

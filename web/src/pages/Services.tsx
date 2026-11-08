@@ -83,15 +83,15 @@ function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysDa
   const queue = useQueue(reload)
   const mainHash = keys?.main_vk_hash
   useEffect(() => {
-    form.setFieldsValue({ dtls_port: s.wdtt_dtls_port, dns: s.wdtt_dns })
-  }, [s.wdtt_dtls_port, s.wdtt_dns, form])
+    form.setFieldsValue({ dtls_port: s.wdtt_dtls_port, dns: s.wdtt_dns, mtu: s.wdtt_mtu || 1280 })
+  }, [s.wdtt_dtls_port, s.wdtt_dns, s.wdtt_mtu, form])
   useEffect(() => {
     if (mainHash !== undefined) form.setFieldsValue({ vk_hash: mainHash })
   }, [mainHash, form])
 
   const submit = (enabled: boolean, extra: Record<string, unknown> = {}) => {
     const v = form.getFieldsValue()
-    queue(put('/api/services/wdtt', { enabled, dtls_port: v.dtls_port, dns: v.dns, vk_hash: v.vk_hash ?? '', ...extra }))
+    queue(put('/api/services/wdtt', { enabled, dtls_port: v.dtls_port, dns: v.dns, mtu: v.mtu, vk_hash: v.vk_hash ?? '', ...extra }))
   }
   const setOwner = async () => {
     const v = await ownerForm.validateFields()
@@ -124,14 +124,23 @@ function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysDa
       </Typography.Paragraph>
       <Form form={form} layout="vertical">
         <Row gutter={12}>
-          <Col span={10}>
+          <Col xs={24} sm={8}>
             <Form.Item name="dtls_port" label="UDP-порт DTLS">
               <InputNumber min={1024} max={65534} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
-          <Col span={14}>
+          <Col xs={24} sm={10}>
             <Form.Item name="dns" label="DNS для клиентов">
               <Input placeholder="1.1.1.1" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={6}>
+            <Form.Item
+              name="mtu"
+              label="MTU туннеля"
+              tooltip="Размер пакета внутри туннеля. По умолчанию 1280. Уменьшите, если на некоторых сетях соединение рвётся или зависает: меньше 1280 учитывают клиенты, которые берут MTU с сервера (стандартный клиент WDTT не опускается ниже 1280). Больше 1340 не помещается в обычную сеть."
+            >
+              <InputNumber min={1200} max={1340} step={20} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
           <Col span={24}>

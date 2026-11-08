@@ -85,8 +85,21 @@ func (b *bind) Close() error {
 func (b *bind) SetMark(uint32) error { return nil }
 func (b *bind) BatchSize() int       { return bindBatch }
 
-func (b *bind) ParseEndpoint(string) (conn.Endpoint, error) {
-	return nil, errors.New("endpoints are learned from sessions")
+// ParseEndpoint finds the live session with the given address; the server
+// uses it to point a peer at the session a device has just opened.
+func (b *bind) ParseEndpoint(s string) (conn.Endpoint, error) {
+	ap, err := netip.ParseAddrPort(s)
+	if err != nil {
+		return nil, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for x := range b.sessions {
+		if x.ep.addr == ap && !x.dead.Load() {
+			return x.ep, nil
+		}
+	}
+	return nil, errors.New("no live session at " + s)
 }
 
 func (b *bind) Send(bufs [][]byte, ep conn.Endpoint) error {
@@ -160,6 +173,26 @@ func (b *bind) sibling(dead *session) *session {
 		}
 	}
 	return best
+}
+
+// newestFor returns the address of the device's most recently opened live
+// session ("" if none).
+func (b *bind) newestFor(dev string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var best *session
+	for s := range b.sessions {
+		if s.dev != dev || s.dead.Load() {
+			continue
+		}
+		if best == nil || s.opened > best.opened {
+			best = s
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.ep.addr.String()
 }
 
 func (b *bind) count() (total int, byKey map[string]int) {

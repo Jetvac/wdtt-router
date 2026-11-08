@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
@@ -41,9 +43,9 @@ func ipcmd(args ...string) error {
 
 // NewLinuxPeers creates the wdtt0 interface with a userspace WireGuard
 // device that talks to clients through the bind.
-func NewLinuxPeers(b *bind, serverPrivate string) (Peers, error) {
+func NewLinuxPeers(b *bind, serverPrivate string, mtu int) (Peers, error) {
 	_ = exec.Command("ip", "link", "del", Iface).Run()
-	t, err := tun.CreateTUN(Iface, TunMTU)
+	t, err := tun.CreateTUN(Iface, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create %s: %w", Iface, err)
 	}
@@ -73,7 +75,7 @@ func NewLinuxPeers(b *bind, serverPrivate string) (Peers, error) {
 	}
 	for _, args := range [][]string{
 		{"addr", "replace", ServerIP + "/24", "dev", Iface},
-		{"link", "set", Iface, "mtu", fmt.Sprint(TunMTU), "up"},
+		{"link", "set", Iface, "mtu", fmt.Sprint(mtu), "up"},
 	} {
 		if err := ipcmd(args...); err != nil {
 			dev.Close()
@@ -122,6 +124,84 @@ func (p *wgPeers) Set(want map[string]string) error {
 		p.have[k] = v
 	}
 	return nil
+}
+
+// Kick points the peer at the session endpoint and has WireGuard initiate
+// a handshake: turning the persistent keepalive on sends a keepalive, and
+// with no current keys that starts a handshake. The keepalive is turned
+// off again right away. Peers with a handshake in the last freshHandshake
+// are left alone.
+func (p *wgPeers) Kick(pub, ep string, retry bool) error {
+	h, err := b64hex(pub)
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ip, ok := p.have[pub]
+	if !ok {
+		return nil
+	}
+	if last, ok := p.lastHandshake(h); ok && time.Since(last) < freshHandshake {
+		return nil
+	}
+	if retry {
+		// Re-create the peer: this clears the handshake state, so the new
+		// initiation is sent now rather than after WireGuard's 5 s pause.
+		if err := p.dev.IpcSet(fmt.Sprintf("public_key=%s\nremove=true\npublic_key=%s\nallowed_ip=%s/32\n", h, h, ip)); err != nil {
+			return err
+		}
+	}
+	if err := p.dev.IpcSet(fmt.Sprintf("public_key=%s\nupdate_only=true\nendpoint=%s\npersistent_keepalive_interval=0\n", h, ep)); err != nil {
+		return err
+	}
+	if err := p.dev.IpcSet(fmt.Sprintf("public_key=%s\nupdate_only=true\npersistent_keepalive_interval=1\n", h)); err != nil {
+		return err
+	}
+	return p.dev.IpcSet(fmt.Sprintf("public_key=%s\nupdate_only=true\npersistent_keepalive_interval=0\n", h))
+}
+
+// Fresh reports whether the peer completed a handshake recently.
+func (p *wgPeers) Fresh(pub string) bool {
+	h, err := b64hex(pub)
+	if err != nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	last, ok := p.lastHandshake(h)
+	return ok && time.Since(last) < freshHandshake
+}
+
+// freshHandshake: WireGuard re-keys every 2 minutes while in use, so a
+// handshake younger than this means the session with the peer works.
+const freshHandshake = 150 * time.Second
+
+func (p *wgPeers) lastHandshake(hexKey string) (time.Time, bool) {
+	cfg, err := p.dev.IpcGet()
+	if err != nil {
+		return time.Time{}, false
+	}
+	in := false
+	for _, line := range strings.Split(cfg, "\n") {
+		k, v, _ := strings.Cut(line, "=")
+		switch {
+		case k == "public_key":
+			in = v == hexKey
+		case in && k == "last_handshake_time_sec":
+			sec, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || sec == 0 {
+				return time.Time{}, false
+			}
+			return time.Unix(sec, 0), true
+		}
+	}
+	return time.Time{}, false
+}
+
+// SetMTU changes the MTU of wdtt0 in place.
+func (p *wgPeers) SetMTU(mtu int) error {
+	return ipcmd("link", "set", Iface, "mtu", fmt.Sprint(mtu))
 }
 
 func (p *wgPeers) Close() error {

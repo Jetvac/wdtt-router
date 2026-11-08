@@ -57,7 +57,8 @@ func TestDeriveKeyCompatible(t *testing.T) {
 
 type fakePeers struct {
 	mu   sync.Mutex
-	last map[string]string
+	last  map[string]string
+	kicks []string
 }
 
 func (f *fakePeers) Set(p map[string]string) error {
@@ -66,7 +67,15 @@ func (f *fakePeers) Set(p map[string]string) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakePeers) Close() error { return nil }
+func (f *fakePeers) Close() error     { return nil }
+func (f *fakePeers) SetMTU(int) error { return nil }
+func (f *fakePeers) Fresh(string) bool { return true }
+func (f *fakePeers) Kick(pub, ep string, retry bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kicks = append(f.kicks, pub+"@"+ep)
+	return nil
+}
 func (f *fakePeers) n() int       { f.mu.Lock(); defer f.mu.Unlock(); return len(f.last) }
 
 // testClient speaks the client side of the protocol over plain UDP.
@@ -166,7 +175,7 @@ func startServer(t *testing.T, cfg Config) (*Server, *fakePeers, string, func())
 	path := filepath.Join(dir, "wdtt.json")
 	writeCfg(t, path, cfg)
 	fp := &fakePeers{}
-	s := NewServer(path, func(*bind, string) (Peers, error) { return fp, nil })
+	s := NewServer(path, func(*bind, string, int) (Peers, error) { return fp, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -232,6 +241,39 @@ func TestServerProtocol(t *testing.T) {
 		t.Fatalf("extra GETCONF field broke the request: %q", r)
 	}
 	c.close()
+
+	// GETCONF alone does not make the server start a WireGuard
+	// handshake: a fresh client starts its own.
+	time.Sleep(100 * time.Millisecond)
+	peers.mu.Lock()
+	n := len(peers.kicks)
+	peers.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("kicks after GETCONF = %v", peers.kicks)
+	}
+	// WireGuard data on new sessions (a client with keys from before a
+	// restart) does, once per device within the interval.
+	for i := 0; i < 2; i++ {
+		c, _ = dialClient(t, addr, "owner-pass")
+		c.ask(t, "GETCONF:9123|phone-1|owner-pass")
+		if _, err := c.dtls.Write(append([]byte{4, 0, 0, 0}, make([]byte, 28)...)); err != nil {
+			t.Fatal(err)
+		}
+		select { // the packet reaches the bind (no WireGuard device here)
+		case in := <-s.bind.in:
+			bufPool.Put(in.b)
+		case <-time.After(3 * time.Second):
+			t.Fatal("packet not delivered")
+		}
+		time.Sleep(100 * time.Millisecond)
+		c.close()
+	}
+	peers.mu.Lock()
+	kicks := append([]string(nil), peers.kicks...)
+	peers.mu.Unlock()
+	if len(kicks) != 1 || !strings.Contains(kicks[0], "@127.0.0.1:") {
+		t.Fatalf("kicks = %v", kicks)
+	}
 
 	// A password must match the key the session authenticated with.
 	g, err := dialClient(t, addr, "guest-pass")
@@ -448,5 +490,38 @@ func TestShutdownNotifiesClients(t *testing.T) {
 			t.Fatal("no DTLS alert reached the client on shutdown")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// After a crash the server resets the sessions of its previous run at
+// start, using the list it kept.
+func TestResetAfterCrash(t *testing.T) {
+	s, _, _, stop := startServer(t, Config{MainPassword: "crash-pass", DNS: "1.1.1.1"})
+	defer stop()
+	u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	ap := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(u.LocalAddr().(*net.UDPAddr).Port))
+	path := filepath.Join(t.TempDir(), "wdtt-sessions.json")
+	writeSessions(path, []liveSession{{Addr: ap, Key: MainKeyID, PT: 111}, {Addr: ap, Key: "gone", PT: 111}})
+	if n := s.mux.resetPrevious(path); n != 1 {
+		t.Fatalf("resets = %d, want 1 (the unknown key is skipped)", n)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the session list was not removed")
+	}
+	buf := make([]byte, 2048)
+	_ = u.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := u.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := newAEAD("crash-pass")
+	out := make([]byte, 2048)
+	m, err := open(a, buf[:n], out)
+	if err != nil || m < 13 || out[0] != 21 || out[3] != 0 || out[4] != 0 {
+		t.Fatalf("not a wrapped epoch-0 alert: %v % x", err, out[:m])
 	}
 }
