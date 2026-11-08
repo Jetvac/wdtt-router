@@ -1,0 +1,284 @@
+// Package spec holds the declarative node specification shared by the
+// controller and the node agent. The controller computes a NodeSpec for every
+// server and the agent reconciles the host to exactly that state. Applying the
+// same spec twice is a no-op, which is what makes repeated install/uninstall
+// requests safe.
+package spec
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"regexp"
+	"strings"
+)
+
+// Version of the spec format. The agent refuses specs it does not understand.
+const Version = 1
+
+// Role of a node inside the chain.
+const (
+	RoleEntry = "entry" // runs the panel, WDTT and 3x-ui; first hop
+	RoleRelay = "relay" // forwards to the next hop only
+	RoleExit  = "exit"  // releases traffic to the Internet
+	RoleIdle  = "idle"  // enrolled, but not part of the chain
+)
+
+// NodeSpec is the complete desired state of one server.
+type NodeSpec struct {
+	Version  int          `json:"version"`
+	NodeID   int64        `json:"node_id"`
+	Role     string       `json:"role"`
+	Mesh     MeshSpec     `json:"mesh"`
+	Hop      *HopSpec     `json:"hop,omitempty"`   // relay and exit
+	Entry    *EntrySpec   `json:"entry,omitempty"` // entry only
+	Firewall FirewallSpec `json:"firewall"`
+}
+
+// MeshSpec describes Cloudflare Mesh enrolment of the node.
+type MeshSpec struct {
+	Enabled  bool   `json:"enabled"`
+	NodeName string `json:"node_name,omitempty"`
+	CFNodeID string `json:"cf_node_id,omitempty"`
+	Token    string `json:"token,omitempty"`
+}
+
+// HopSpec is the VLESS inbound of a relay or exit node. It listens only on the
+// node's Mesh address. A relay may forward only to Next; an exit releases to
+// the Internet but never to private or Mesh ranges.
+type HopSpec struct {
+	Port       int      `json:"port"`
+	UUID       string   `json:"uuid"`
+	Decryption string   `json:"decryption"`
+	Next       *NextHop `json:"next,omitempty"`
+}
+
+// NextHop is the only destination a relay is allowed to reach.
+type NextHop struct {
+	Addr string `json:"addr"`
+	Port int    `json:"port"`
+}
+
+// OnionHop is one layer of the entry's nested outbound. Encryption is the
+// client half of the hop's VLESS Encryption key pair.
+type OnionHop struct {
+	Addr       string `json:"addr"`
+	Port       int    `json:"port"`
+	UUID       string `json:"uuid"`
+	Encryption string `json:"encryption"`
+}
+
+// EntrySpec is the configuration of the first node.
+type EntrySpec struct {
+	// Chain lists the downstream hops in order. The entry encrypts the stream
+	// for the last hop first, so intermediate nodes forward opaque bytes.
+	Chain     []OnionHop `json:"chain"`
+	SocksPort int        `json:"socks_port"`
+	SocksUser string     `json:"socks_user"`
+	SocksPass string     `json:"socks_pass"`
+	WDTT      WDTTSpec   `json:"wdtt"`
+	XUI       XUISpec    `json:"xui"`
+}
+
+// WDTTSpec controls the optional WDTT server.
+type WDTTSpec struct {
+	Enabled  bool   `json:"enabled"`
+	DTLSPort int    `json:"dtls_port"`
+	WGPort   int    `json:"wg_port"`
+	Password string `json:"password,omitempty"`
+	DNS      string `json:"dns,omitempty"`
+	TProxy   int    `json:"tproxy_port"`
+}
+
+// XUISpec controls the optional 3x-ui panel.
+type XUISpec struct {
+	Enabled bool `json:"enabled"`
+	// RouteViaChain makes the chain the default outbound of 3x-ui.
+	RouteViaChain bool `json:"route_via_chain"`
+}
+
+// FirewallSpec is the input policy of the node. Everything not listed is
+// dropped. Outbound traffic is unrestricted.
+type FirewallSpec struct {
+	Enabled bool `json:"enabled"`
+	SSHPort int  `json:"ssh_port"`
+	// SSHPublic allows SSH from the Internet (restricted to SSHAllow when it
+	// is not empty). When false SSH is reachable only through Mesh.
+	SSHPublic bool     `json:"ssh_public"`
+	SSHAllow  []string `json:"ssh_allow,omitempty"`
+	// PanelPort is opened on the entry for the web panel; 0 disables.
+	PanelPort  int      `json:"panel_port,omitempty"`
+	PanelAllow []string `json:"panel_allow,omitempty"`
+	AllowPing  bool     `json:"allow_ping"`
+	ExtraTCP   []int    `json:"extra_tcp,omitempty"`
+	ExtraUDP   []int    `json:"extra_udp,omitempty"`
+}
+
+var (
+	reUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	reKey  = regexp.MustCompile(`^mlkem768x25519plus\.(native|xorpub|random)\.[0-9a-z-]+\.[A-Za-z0-9_-]{43,}$`)
+	reName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+	rePass = regexp.MustCompile(`^[A-Za-z0-9._-]{16,128}$`)
+)
+
+func validPort(p int) bool { return p >= 1 && p <= 65535 }
+
+// ValidCIDR accepts an IPv4/IPv6 address or prefix.
+func ValidCIDR(s string) bool {
+	if net.ParseIP(s) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(s)
+	return err == nil
+}
+
+// MeshIP reports whether addr is inside the Cloudflare Mesh range.
+func MeshIP(addr string) bool {
+	ip := net.ParseIP(addr).To4()
+	_, mesh, _ := net.ParseCIDR("100.96.0.0/12")
+	return ip != nil && mesh.Contains(ip)
+}
+
+// Validate checks the spec before the agent touches the host.
+func (s *NodeSpec) Validate() error {
+	if s.Version != Version {
+		return fmt.Errorf("unsupported spec version %d", s.Version)
+	}
+	switch s.Role {
+	case RoleEntry, RoleRelay, RoleExit, RoleIdle:
+	default:
+		return fmt.Errorf("invalid role %q", s.Role)
+	}
+	if s.Mesh.Enabled {
+		if !reName.MatchString(s.Mesh.NodeName) || s.Mesh.Token == "" || strings.ContainsAny(s.Mesh.Token, " \r\n'\"") {
+			return errors.New("invalid Mesh enrolment")
+		}
+	}
+	if (s.Role == RoleRelay || s.Role == RoleExit) != (s.Hop != nil) {
+		return errors.New("hop settings must be present exactly on relay and exit nodes")
+	}
+	if s.Role != RoleIdle && s.Role != RoleEntry && !s.Mesh.Enabled {
+		return errors.New("chain nodes must be enrolled in Mesh")
+	}
+	if s.Hop != nil {
+		h := s.Hop
+		if !validPort(h.Port) || !reUUID.MatchString(h.UUID) || !reKey.MatchString(h.Decryption) {
+			return errors.New("invalid hop inbound")
+		}
+		if (s.Role == RoleRelay) != (h.Next != nil) {
+			return errors.New("only relays have a next hop")
+		}
+		if h.Next != nil && (!MeshIP(h.Next.Addr) || !validPort(h.Next.Port)) {
+			return errors.New("next hop must be a Mesh address")
+		}
+	}
+	if (s.Role == RoleEntry) != (s.Entry != nil) {
+		return errors.New("entry settings must be present exactly on the entry node")
+	}
+	if e := s.Entry; e != nil {
+		for i, h := range e.Chain {
+			if !MeshIP(h.Addr) || !validPort(h.Port) || !reUUID.MatchString(h.UUID) || !reKey.MatchString(h.Encryption) {
+				return fmt.Errorf("invalid chain hop %d", i+1)
+			}
+		}
+		if !validPort(e.SocksPort) || !reName.MatchString(e.SocksUser) || !rePass.MatchString(e.SocksPass) {
+			return errors.New("invalid local proxy settings")
+		}
+		if w := e.WDTT; w.Enabled {
+			if !validPort(w.DTLSPort) || !validPort(w.WGPort) || !validPort(w.TProxy) || w.DTLSPort == w.WGPort || !rePass.MatchString(w.Password) {
+				return errors.New("invalid WDTT settings")
+			}
+			for _, d := range strings.Split(w.DNS, ",") {
+				if d != "" && net.ParseIP(strings.TrimSpace(d)) == nil {
+					return errors.New("invalid WDTT DNS")
+				}
+			}
+		}
+	}
+	f := s.Firewall
+	if f.Enabled {
+		if !validPort(f.SSHPort) {
+			return errors.New("invalid SSH port")
+		}
+		if !f.SSHPublic && !s.Mesh.Enabled {
+			return errors.New("SSH must stay public on a node without Mesh")
+		}
+		for _, c := range append(append([]string{}, f.SSHAllow...), f.PanelAllow...) {
+			if !ValidCIDR(c) {
+				return fmt.Errorf("invalid address %q", c)
+			}
+		}
+		if f.PanelPort != 0 && !validPort(f.PanelPort) {
+			return errors.New("invalid panel port")
+		}
+		for _, p := range append(append([]int{}, f.ExtraTCP...), f.ExtraUDP...) {
+			if !validPort(p) {
+				return errors.New("invalid extra port")
+			}
+		}
+	}
+	return nil
+}
+
+// Status is what the agent reports back to the controller.
+type Status struct {
+	AgentVersion string  `json:"agent_version"`
+	Hostname     string  `json:"hostname"`
+	OS           string  `json:"os"`
+	Arch         string  `json:"arch"`
+	Kernel       string  `json:"kernel"`
+	PublicIface  string  `json:"public_iface"`
+	PublicIPv4   string  `json:"public_ipv4"`
+	UptimeSec    int64   `json:"uptime_sec"`
+	Load1        float64 `json:"load1"`
+	MemTotalMB   int64   `json:"mem_total_mb"`
+	MemAvailMB   int64   `json:"mem_avail_mb"`
+	DiskFreeMB   int64   `json:"disk_free_mb"`
+
+	SpecRole    string `json:"spec_role"`
+	SpecApplied string `json:"spec_applied"`
+	SpecHash    string `json:"spec_hash"`
+
+	MeshInstalled bool   `json:"mesh_installed"`
+	MeshStatus    string `json:"mesh_status"`
+	MeshIP        string `json:"mesh_ip"`
+	MeshVersion   string `json:"mesh_version"`
+
+	XrayInstalled bool   `json:"xray_installed"`
+	XrayVersion   string `json:"xray_version"`
+	XrayActive    string `json:"xray_active"`
+
+	FirewallActive bool     `json:"firewall_active"`
+	FirewallPorts  []string `json:"firewall_ports"`
+	RevertPending  bool     `json:"revert_pending"`
+
+	WDTTInstalled bool   `json:"wdtt_installed"`
+	WDTTActive    string `json:"wdtt_active"`
+	WDTTIface     bool   `json:"wdtt_iface"`
+	WDTTPeers     int    `json:"wdtt_peers"`
+
+	XUIInstalled bool   `json:"xui_installed"`
+	XUIActive    string `json:"xui_active"`
+	XUIPorts     []int  `json:"xui_ports"`
+
+	Problems []string `json:"problems"`
+}
+
+// ApplyResult is returned by "agent apply".
+type ApplyResult struct {
+	Changed       []string          `json:"changed"`
+	RevertPending bool              `json:"revert_pending"`
+	Status        Status            `json:"status"`
+	Secrets       map[string]string `json:"secrets,omitempty"`
+}
+
+// ProbeResult is the end-to-end check of the chain run on the entry node.
+type ProbeResult struct {
+	OK     bool   `json:"ok"`
+	ExitIP string `json:"exit_ip"`
+	Colo   string `json:"colo"`
+	TCPms  int64  `json:"tcp_ms"`
+	UDPOK  bool   `json:"udp_ok"`
+	UDPms  int64  `json:"udp_ms"`
+	Error  string `json:"error,omitempty"`
+}

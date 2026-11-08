@@ -2,323 +2,183 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"regexp"
-	"strconv"
+	"strings"
+	"sync"
 	"time"
-
-	"github.com/Jetvac/wdtt-router/internal/auth"
-	"github.com/Jetvac/wdtt-router/internal/node"
 )
 
+// Job is one queued operation. All operations that change servers run on a
+// single worker, so concurrent or repeated clicks can never interleave.
 type Job struct {
 	ID         int64  `json:"id"`
-	ServerID   int64  `json:"server_id"`
-	Action     string `json:"action"`
+	Kind       string `json:"kind"`
+	NodeID     int64  `json:"node_id"`
+	Title      string `json:"title"`
 	Status     string `json:"status"`
-	Progress   string `json:"progress"`
-	Result     string `json:"result"`
-	SnapshotID string `json:"snapshot_id"`
+	Log        string `json:"log,omitempty"`
+	Error      string `json:"error"`
+	CreatedBy  string `json:"created_by"`
 	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
 }
 
-func (a *App) listJobs(limit int) ([]Job, error) {
-	rows, err := a.Store.DB.Query(`SELECT id,server_id,action,status,progress,result,snapshot_id,created_at,updated_at FROM jobs ORDER BY id DESC LIMIT ?`, limit)
+type jobFunc func(ctx context.Context, j *jobRun) error
+
+type jobRun struct {
+	a  *App
+	id int64
+	mu sync.Mutex
+}
+
+func (j *jobRun) Log(format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	line = strings.TrimPrefix(line, "• ")
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	ts := time.Now().UTC().Format("15:04:05")
+	_, _ = j.a.Store.DB.Exec(`UPDATE jobs SET log = substr(log || ?, -65536) WHERE id=?`, ts+"  "+line+"\n", j.id)
+}
+
+func (j *jobRun) progress(line string) { j.Log("%s", line) }
+
+// Enqueue adds a job unless an identical one is already waiting.
+func (a *App) Enqueue(kind string, nodeID int64, title, user string, input any) (int64, error) {
+	var existing int64
+	err := a.Store.DB.QueryRow(`SELECT id FROM jobs WHERE kind=? AND node_id=? AND status='queued'`, kind, nodeID).Scan(&existing)
+	if err == nil && input == nil {
+		return existing, nil
+	}
+	cipher := ""
+	if input != nil {
+		b, _ := json.Marshal(input)
+		if cipher, err = a.Store.Seal(string(b)); err != nil {
+			return 0, err
+		}
+	}
+	res, err := a.Store.DB.Exec(`INSERT INTO jobs(kind,node_id,title,status,input_cipher,created_by,created_at) VALUES(?,?,?,'queued',?,?,?)`, kind, nodeID, title, cipher, user, now())
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	select {
+	case a.wake <- struct{}{}:
+	default:
+	}
+	return id, nil
+}
+
+func (a *App) jobInput(id int64, v any) error {
+	var c string
+	if err := a.Store.DB.QueryRow(`SELECT input_cipher FROM jobs WHERE id=?`, id).Scan(&c); err != nil {
+		return err
+	}
+	if c == "" {
+		return errors.New("job has no input")
+	}
+	p, err := a.Store.OpenSecret(c)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal([]byte(p), v)
+}
+
+// worker runs queued jobs one at a time.
+func (a *App) worker(ctx context.Context) {
+	// Jobs that were running when the panel stopped did not finish.
+	_, _ = a.Store.DB.Exec(`UPDATE jobs SET status='failed', error='Панель была перезапущена во время выполнения', finished_at=? WHERE status='running'`, now())
+	for {
+		var id, nodeID int64
+		var kind string
+		err := a.Store.DB.QueryRow(`SELECT id,kind,node_id FROM jobs WHERE status='queued' ORDER BY id LIMIT 1`).Scan(&id, &kind, &nodeID)
+		if errors.Is(err, sql.ErrNoRows) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.wake:
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+		a.runJob(ctx, id, kind, nodeID)
+	}
+}
+
+func (a *App) runJob(ctx context.Context, id int64, kind string, nodeID int64) {
+	_, _ = a.Store.DB.Exec(`UPDATE jobs SET status='running', started_at=? WHERE id=?`, now(), id)
+	j := &jobRun{a: a, id: id}
+	fn, ok := a.handlers()[kind]
+	var err error
+	if !ok {
+		err = fmt.Errorf("unknown job kind %s", kind)
+	} else {
+		jctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("внутренняя ошибка: %v", r)
+				}
+			}()
+			err = fn(context.WithValue(jctx, nodeKey{}, nodeID), j)
+		}()
+		cancel()
+	}
+	status, msg := "success", ""
+	if err != nil {
+		status, msg = "failed", err.Error()
+		j.Log("ОШИБКА: %s", msg)
+	} else {
+		j.Log("Готово")
+	}
+	// Input may hold passwords; drop it once the job is done.
+	_, _ = a.Store.DB.Exec(`UPDATE jobs SET status=?, error=?, finished_at=?, input_cipher='' WHERE id=?`, status, msg, now(), id)
+}
+
+type nodeKey struct{}
+
+func jobNode(ctx context.Context) int64 {
+	v, _ := ctx.Value(nodeKey{}).(int64)
+	return v
+}
+
+func (a *App) jobs(limit int) ([]Job, error) {
+	rows, err := a.Store.DB.Query(`SELECT id,kind,node_id,title,status,error,created_by,created_at,started_at,finished_at FROM jobs ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	list := []Job{}
+	out := []Job{}
 	for rows.Next() {
 		var j Job
-		if err := rows.Scan(&j.ID, &j.ServerID, &j.Action, &j.Status, &j.Progress, &j.Result, &j.SnapshotID, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.Kind, &j.NodeID, &j.Title, &j.Status, &j.Error, &j.CreatedBy, &j.CreatedAt, &j.StartedAt, &j.FinishedAt); err != nil {
 			return nil, err
 		}
-		list = append(list, j)
+		out = append(out, j)
 	}
-	return list, rows.Err()
+	return out, nil
 }
 
-func (a *App) jobs(w http.ResponseWriter, r *http.Request, _ auth.Session) {
-	list, err := a.listJobs(100)
-	if err != nil {
-		apiError(w, 500, "Could not load jobs")
-		return
-	}
-	writeJSON(w, 200, list)
+func (a *App) job(id int64) (Job, error) {
+	var j Job
+	err := a.Store.DB.QueryRow(`SELECT id,kind,node_id,title,status,log,error,created_by,created_at,started_at,finished_at FROM jobs WHERE id=?`, id).
+		Scan(&j.ID, &j.Kind, &j.NodeID, &j.Title, &j.Status, &j.Log, &j.Error, &j.CreatedBy, &j.CreatedAt, &j.StartedAt, &j.FinishedAt)
+	return j, err
 }
 
-func (a *App) work(ctx context.Context) {
-	_, _ = a.Store.DB.Exec(`UPDATE jobs SET status='failed',result='Controller restarted during operation; check recovery status',input_cipher='',updated_at=? WHERE status IN ('running','rolling_back')`, time.Now().UTC().Format(time.RFC3339))
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			a.runNext(ctx)
-		}
-	}
-}
-
-func (a *App) runNext(ctx context.Context) {
-	var id, serverID int64
-	var action, cipherText string
-	err := a.Store.DB.QueryRow(`SELECT id,server_id,action,input_cipher FROM jobs WHERE status='queued' ORDER BY id LIMIT 1`).Scan(&id, &serverID, &action, &cipherText)
-	if errors.Is(err, sql.ErrNoRows) {
-		return
-	}
-	if err != nil {
-		a.loggerError(err)
-		return
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := a.Store.DB.Exec(`UPDATE jobs SET status='running',progress='Connecting to node',updated_at=? WHERE id=? AND status='queued'`, now, id)
-	if err != nil {
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return
-	}
-	// One worker serializes changes across all nodes; a later worker pool can
-	// preserve this per-server exclusion while allowing independent nodes.
-	jobCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-	result, err := a.execute(jobCtx, serverID, action, cipherText, id)
-	cancel()
-	status := "success"
-	message := result
-	if err != nil {
-		status = "failed"
-		message = redactError(err.Error())
-		a.Store.Event(serverID, action, "error", message)
-	} else {
-		a.Store.Event(serverID, action, "info", result)
-	}
-	_, _ = a.Store.DB.Exec(`UPDATE jobs SET status=?,progress='',result=?,input_cipher='',updated_at=? WHERE id=?`, status, trim(message, 2000), time.Now().UTC().Format(time.RFC3339), id)
-}
-
-func redactError(s string) string {
-	// Node errors should be structured without secrets. These guards also cover
-	// unexpected text from SSH, third-party installers, and HTTP libraries.
-	s = regexp.MustCompile(`(?i)(?:wdtt|vless)://[^\s"'<>]+`).ReplaceAllString(s, "<redacted link>")
-	s = regexp.MustCompile(`cfut_[A-Za-z0-9_-]+`).ReplaceAllString(s, "<redacted token>")
-	s = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*`).ReplaceAllString(s, "Bearer <redacted token>")
-	s = regexp.MustCompile(`(?i)\b(?:api[_-]?token|password|private[_-]?key)\s*[:=]\s*[^,\s;]+`).ReplaceAllString(s, "<redacted credential>")
-	return trim(s, 1800)
-}
-
-func trim(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
-}
-
-func (a *App) execute(ctx context.Context, serverID int64, action, cipherText string, jobID int64) (string, error) {
-	plain, err := a.Store.OpenSecret(cipherText)
-	if err != nil {
-		return "", err
-	}
-	if action == "cloudflare.deploy" {
-		return a.deployCloudflare(ctx, []byte(plain), jobID)
-	}
-	s, err := a.getServer(serverID)
-	if err != nil {
-		return "", err
-	}
-	var req node.Request
-	if err := json.Unmarshal([]byte(plain), &req); err != nil {
-		return "", err
-	}
-	var result node.Result
-	if s.Transport == "local" {
-		result, err = node.Apply(ctx, req)
-	} else {
-		out, runErr := a.SSH.Run(ctx, s.target(), "/usr/local/bin/wdtt-panel node apply", []byte(plain))
-		if runErr != nil {
-			return "", fmt.Errorf("node operation failed: %w: %s", runErr, trim(string(out), 800))
-		}
-		err = json.Unmarshal(out, &result)
-	}
-	if err != nil {
-		return "", err
-	}
-	if action == "xui.warp.enable" {
-		if err := a.verifyXUIWarp(ctx, s); err != nil {
-			if rollbackErr := a.disableXUIWarp(ctx, s); rollbackErr != nil {
-				return "", fmt.Errorf("WARP TCP/UDP verification failed and rollback failed: %w", rollbackErr)
-			}
-			return "", fmt.Errorf("WARP TCP/UDP verification failed; direct outbound restored: %w", err)
-		}
-	}
-	if result.RecoveryID != "" {
-		if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`).MatchString(result.RecoveryID) {
-			return "", errors.New("invalid recovery ID returned by node")
-		}
-		_, _ = a.Store.DB.Exec(`UPDATE jobs SET progress='Checking management connection and health',snapshot_id=?,updated_at=? WHERE id=?`, result.RecoveryID, time.Now().UTC().Format(time.RFC3339), jobID)
-		observed, healthErr := a.readStatus(ctx, s)
-		if healthErr == nil && action == "mesh.install" {
-			if observed.MeshContainer != "running" || observed.MeshIP == "" || req.Mesh == nil {
-				healthErr = errors.New("Mesh interface or container missing")
-			} else {
-				healthErr = a.waitCFMeshHealthy(ctx, req.Mesh.AccountID, req.Mesh.NodeID)
-			}
-		}
-		if healthErr == nil && action == "vless.client.enable" && !observed.VLESSClientReady {
-			healthErr = errors.New("transparent VLESS client is not listening")
-		}
-		if healthErr != nil {
-			_, _ = a.Store.DB.Exec(`UPDATE jobs SET status='rolling_back',progress='Restoring previous state',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), jobID)
-			_ = a.recover(ctx, s, result.RecoveryID)
-			return "", fmt.Errorf("post-apply verification failed; rollback requested: %w", healthErr)
-		}
-		if err := a.commit(ctx, s, result.RecoveryID); err != nil {
-			return "", fmt.Errorf("could not cancel recovery timer: %w", err)
-		}
-		if action == "routing.apply" || action == "firewall.apply" || action == "recovery.restore" {
-			result.Message += " (snapshot saved)"
-		}
-	}
-	if len(result.Secret) > 0 {
-		b, _ := json.Marshal(result.Secret)
-		kind := ""
-		switch action {
-		case "xui.install", "xui.credentials":
-			kind = "xui"
-		case "vless.enable":
-			kind = "vless"
-		case "vless.client.enable":
-			kind = "vless-client"
-		default:
-			return "", errors.New("unexpected secret returned by node")
-		}
-		if err := a.Store.PutSecret("server:"+strconv.FormatInt(serverID, 10)+":"+kind, string(b)); err != nil {
-			return "", err
-		}
-	}
-	if action == "vless.disable" {
-		_ = a.Store.DeleteSecret("server:" + strconv.FormatInt(serverID, 10) + ":vless")
-	}
-	if action == "vless.client.disable" {
-		_ = a.Store.DeleteSecret("server:" + strconv.FormatInt(serverID, 10) + ":vless-client")
-	}
-	if action == "wdtt.install" || action == "wdtt.reconfigure" {
-		b, _ := json.Marshal(map[string]string{"password": req.Password, "vk_link": req.VKLink, "public_host": req.PublicHost})
-		if err := a.Store.PutSecret("server:"+strconv.FormatInt(serverID, 10)+":wdtt", string(b)); err != nil {
-			return "", err
-		}
-	}
-	if result.Status != nil {
-		b, _ := json.Marshal(result.Status)
-		_, _ = a.Store.DB.Exec(`UPDATE servers SET os=?,last_seen=?,observed_json=? WHERE id=?`, result.Status.OS, time.Now().UTC().Format(time.RFC3339), string(b), serverID)
-	}
-	if req.Firewall != nil {
-		auto := 0
-		if req.Firewall.Automatic {
-			auto = 1
-		}
-		_, _ = a.Store.DB.Exec(`UPDATE servers SET firewall_auto=? WHERE id=?`, auto, serverID)
-	}
-	if result.Status == nil {
-		if observed, statusErr := a.readStatus(ctx, s); statusErr == nil {
-			b, _ := json.Marshal(observed)
-			_, _ = a.Store.DB.Exec(`UPDATE servers SET os=?,last_seen=?,observed_json=? WHERE id=?`, observed.OS, time.Now().UTC().Format(time.RFC3339), string(b), serverID)
-		}
-	}
-	return result.Message, nil
-}
-
-func (a *App) verifyXUIWarp(ctx context.Context, egress Server) error {
-	servers, err := a.listServers()
-	if err != nil {
-		return err
-	}
-	for _, ingress := range servers {
-		if ingress.Role != "ingress" {
-			continue
-		}
-		observed, err := a.readStatus(ctx, ingress)
-		if err != nil || !observed.VLESSClientEnabled {
-			continue
-		}
-		for attempt := 0; attempt < 3; attempt++ {
-			var probe node.TrafficProbe
-			if ingress.Transport == "local" {
-				probe, err = node.ProbeVLESSClientTraffic(ctx)
-			} else {
-				var out []byte
-				out, err = a.SSH.Run(ctx, ingress.target(), "/usr/local/bin/wdtt-panel node probe-vless-client-json", nil)
-				if err == nil {
-					err = json.Unmarshal(out, &probe)
-				}
-			}
-			if err == nil && probe.UDPOK && probe.IP != egress.Host {
-				return nil
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(3 * time.Second):
-			}
-		}
-		return errors.New("private VLESS still exits directly or UDP failed")
-	}
-	return nil // No active WDTT VLESS client to probe yet.
-}
-
-func (a *App) disableXUIWarp(ctx context.Context, s Server) error {
-	req := node.Request{Action: "xui.warp.disable"}
-	if s.Transport == "local" {
-		_, err := node.Apply(ctx, req)
-		return err
-	}
-	b, _ := json.Marshal(req)
-	_, err := a.SSH.Run(ctx, s.target(), "/usr/local/bin/wdtt-panel node apply", b)
-	return err
-}
-
-func (a *App) waitCFMeshHealthy(ctx context.Context, accountID, nodeID string) error {
-	token, err := a.Store.Secret("cloudflare:" + accountID)
-	if err != nil {
-		return errors.New("Cloudflare token unavailable for Mesh verification")
-	}
-	client := cfClient{accountID: accountID, token: token, http: &http.Client{Timeout: 12 * time.Second}}
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		var state cfMeshNode
-		err := client.get(ctx, "warp_connector/"+nodeID, &state)
-		if err == nil && state.Status == "healthy" {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return errors.New("Cloudflare Mesh node did not become healthy")
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Second):
-		}
-	}
-}
-
-func (a *App) commit(ctx context.Context, s Server, id string) error {
-	if s.Transport == "local" {
-		return node.CommitRecovery(ctx, id)
-	}
-	_, err := a.SSH.Run(ctx, s.target(), "/usr/local/bin/wdtt-panel node commit "+id, nil)
-	return err
-}
-func (a *App) recover(ctx context.Context, s Server, id string) error {
-	if s.Transport == "local" {
-		return node.Recover(ctx, id)
-	}
-	_, err := a.SSH.Run(ctx, s.target(), "/usr/local/bin/wdtt-panel node recover "+id, nil)
-	return err
+func specHashBytes(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
 }

@@ -1,0 +1,120 @@
+export interface Status {
+  agent_version: string
+  hostname: string
+  os: string
+  arch: string
+  kernel: string
+  public_iface: string
+  public_ipv4: string
+  uptime_sec: number
+  load1: number
+  mem_total_mb: number
+  mem_avail_mb: number
+  disk_free_mb: number
+  spec_role: string
+  spec_applied: string
+  spec_hash: string
+  mesh_installed: boolean
+  mesh_status: string
+  mesh_ip: string
+  mesh_version: string
+  xray_installed: boolean
+  xray_version: string
+  xray_active: string
+  firewall_active: boolean
+  firewall_ports: string[] | null
+  revert_pending: boolean
+  wdtt_installed: boolean
+  wdtt_active: string
+  wdtt_iface: boolean
+  wdtt_peers: number
+  xui_installed: boolean
+  xui_active: string
+  xui_ports: number[] | null
+  problems: string[] | null
+}
+
+export interface NodeView {
+  id: number
+  name: string
+  host: string
+  ssh_port: number
+  fingerprint: string
+  local: boolean
+  mesh_ip: string
+  cf_node_id: string
+  cf_node_name: string
+  hop_port: number
+  ssh_public: boolean
+  ssh_allow: string[]
+  allow_ping: boolean
+  firewall: boolean
+  status: Status
+  last_seen: string
+  last_error: string
+  created_at: string
+  role: 'entry' | 'relay' | 'exit' | 'idle'
+  in_chain: boolean
+  position: number
+  out_of_sync: boolean
+}
+
+export interface Job {
+  id: number
+  kind: string
+  node_id: number
+  title: string
+  status: 'queued' | 'running' | 'success' | 'failed'
+  log?: string
+  error: string
+  created_by: string
+  created_at: string
+  started_at: string
+  finished_at: string
+}
+
+export interface Probe {
+  ok: boolean
+  exit_ip: string
+  colo: string
+  tcp_ms: number
+  udp_ok: boolean
+  udp_ms: number
+  error?: string
+  at: string
+  exit_node: string
+  expected_ip: string
+  match: boolean
+}
+
+export interface EntrySettings {
+  wdtt_enabled: boolean
+  wdtt_dtls_port: number
+  wdtt_wg_port: number
+  wdtt_dns: string
+  xui_enabled: boolean
+  xui_route_via_chain: boolean
+  panel_port: number
+  panel_allow: string[]
+}
+
+export interface Overview {
+  nodes: NodeView[]
+  chain: number[]
+  plan_error: string
+  probe: Probe | null
+  services: EntrySettings
+  cloudflare: boolean
+  jobs: Job[]
+  active_jobs: number
+  version: string
+}
+
+export interface Check {
+  key: string
+  ok: boolean
+  title: string
+  detail: string
+  fix?: string
+  fix_arg?: string
+}

@@ -8,3 +8,9 @@ coverage/
 .env
 *.key
 *.pem
+
+# Built UI (CI builds it; the placeholder keeps go:embed working)
+web/dist/*
+!web/dist/.gitkeep
+web/node_modules/
+.claude/

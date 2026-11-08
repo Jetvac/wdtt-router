@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Store struct {
@@ -46,7 +46,7 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	dbPath := filepath.Join(dir, "state.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
@@ -70,20 +70,69 @@ func (s *Store) Close() error { return s.DB.Close() }
 func (s *Store) migrate() error {
 	_, err := s.DB.Exec(`
 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), csrf TEXT NOT NULL, expires_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS servers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL UNIQUE, port INTEGER NOT NULL DEFAULT 22, role TEXT NOT NULL, os TEXT NOT NULL DEFAULT '', fingerprint TEXT NOT NULL DEFAULT '', transport TEXT NOT NULL DEFAULT 'ssh', firewall_auto INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_seen TEXT NOT NULL DEFAULT '', observed_json TEXT NOT NULL DEFAULT '{}');
-CREATE TABLE IF NOT EXISTS chains (id INTEGER PRIMARY KEY, name TEXT NOT NULL, desired_json TEXT NOT NULL, observed_json TEXT NOT NULL DEFAULT '{}', applied_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, server_id INTEGER REFERENCES servers(id), action TEXT NOT NULL, status TEXT NOT NULL, progress TEXT NOT NULL DEFAULT '', input_cipher TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT '', snapshot_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, server_id INTEGER REFERENCES servers(id), action TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY, user_id INTEGER, server_id INTEGER, action TEXT NOT NULL, result TEXT NOT NULL, at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, cipher_text TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, csrf TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS cloudflare_resources (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, vnet_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, name TEXT NOT NULL, owner TEXT NOT NULL CHECK(owner IN ('created','imported')), created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, server_id INTEGER, component TEXT NOT NULL, severity TEXT NOT NULL, message TEXT NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, cipher_text TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS nodes (
+	id INTEGER PRIMARY KEY,
+	name TEXT NOT NULL UNIQUE,
+	host TEXT NOT NULL,
+	ssh_port INTEGER NOT NULL DEFAULT 22,
+	fingerprint TEXT NOT NULL DEFAULT '',
+	local INTEGER NOT NULL DEFAULT 0,
+	mesh_ip TEXT NOT NULL DEFAULT '',
+	cf_node_id TEXT NOT NULL DEFAULT '',
+	cf_node_name TEXT NOT NULL DEFAULT '',
+	hop_port INTEGER NOT NULL DEFAULT 0,
+	ssh_public INTEGER NOT NULL DEFAULT 1,
+	ssh_allow TEXT NOT NULL DEFAULT '',
+	allow_ping INTEGER NOT NULL DEFAULT 0,
+	firewall INTEGER NOT NULL DEFAULT 1,
+	status_json TEXT NOT NULL DEFAULT '{}',
+	last_seen TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS jobs (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL,
+	node_id INTEGER NOT NULL DEFAULT 0,
+	title TEXT NOT NULL,
+	status TEXT NOT NULL,
+	log TEXT NOT NULL DEFAULT '',
+	error TEXT NOT NULL DEFAULT '',
+	input_cipher TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	started_at TEXT NOT NULL DEFAULT '',
+	finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, username TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', remote TEXT NOT NULL DEFAULT '', at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS cf_resources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, node_id INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_events_at ON events(at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at DESC);
 `)
 	return err
+}
+
+// Setting returns a stored setting or def.
+func (s *Store) Setting(name, def string) string {
+	var v string
+	if err := s.DB.QueryRow(`SELECT value FROM settings WHERE name=?`, name).Scan(&v); err != nil {
+		return def
+	}
+	return v
+}
+
+// SetSetting stores a setting.
+func (s *Store) SetSetting(name, value string) error {
+	_, err := s.DB.Exec(`INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value`, name, value)
+	return err
+}
+
+// Audit records a user action.
+func (s *Store) Audit(user, action, detail, remote string) {
+	_, _ = s.DB.Exec(`INSERT INTO audit(username,action,detail,remote,at) VALUES(?,?,?,?,?)`, user, action, detail, remote, time.Now().UTC().Format(time.RFC3339))
 }
 
 func (s *Store) Seal(plain string) (string, error) {
@@ -148,19 +197,13 @@ func (s *Store) DeleteSecret(name string) error {
 	return err
 }
 
-func (s *Store) Event(serverID int64, component, severity, message string) {
-	_, _ = s.DB.Exec(`INSERT INTO events(server_id,component,severity,message,at) VALUES(?,?,?,?,?)`, serverID, component, severity, message, time.Now().UTC().Format(time.RFC3339))
-}
-
+// Prune removes old history: audit entries and finished jobs older than 30 days.
 func (s *Store) Prune() error {
-	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
-	if _, err := s.DB.Exec(`DELETE FROM events WHERE at < ?`, cutoff); err != nil {
-		return fmt.Errorf("prune events: %w", err)
-	}
-	if _, err := s.DB.Exec(`DELETE FROM audit_events WHERE at < ?`, cutoff); err != nil {
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := s.DB.Exec(`DELETE FROM audit WHERE at < ?`, cutoff); err != nil {
 		return fmt.Errorf("prune audit: %w", err)
 	}
-	if _, err := s.DB.Exec(`DELETE FROM jobs WHERE updated_at < ? AND status IN ('success','failed')`, cutoff); err != nil {
+	if _, err := s.DB.Exec(`DELETE FROM jobs WHERE created_at < ? AND status IN ('success','failed','cancelled')`, cutoff); err != nil {
 		return fmt.Errorf("prune jobs: %w", err)
 	}
 	_, err := s.DB.Exec(`DELETE FROM sessions WHERE expires_at < ?`, time.Now().UTC().Format(time.RFC3339))
