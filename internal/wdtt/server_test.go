@@ -56,7 +56,7 @@ func TestDeriveKeyCompatible(t *testing.T) {
 }
 
 type fakePeers struct {
-	mu   sync.Mutex
+	mu    sync.Mutex
 	last  map[string]string
 	kicks []string
 }
@@ -67,8 +67,8 @@ func (f *fakePeers) Set(p map[string]string) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakePeers) Close() error     { return nil }
-func (f *fakePeers) SetMTU(int) error { return nil }
+func (f *fakePeers) Close() error      { return nil }
+func (f *fakePeers) SetMTU(int) error  { return nil }
 func (f *fakePeers) Fresh(string) bool { return true }
 func (f *fakePeers) Kick(pub, ep string, retry bool) error {
 	f.mu.Lock()
@@ -76,7 +76,7 @@ func (f *fakePeers) Kick(pub, ep string, retry bool) error {
 	f.kicks = append(f.kicks, pub+"@"+ep)
 	return nil
 }
-func (f *fakePeers) n() int       { f.mu.Lock(); defer f.mu.Unlock(); return len(f.last) }
+func (f *fakePeers) n() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.last) }
 
 // testClient speaks the client side of the protocol over plain UDP.
 type testClient struct {
