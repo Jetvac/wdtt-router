@@ -61,6 +61,8 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("GET /api/jobs/{id}", a.authed(a.getJob))
 	m.HandleFunc("GET /api/audit", a.authed(a.listAudit))
 	m.HandleFunc("GET /api/events", a.authed(a.listEvents))
+	m.HandleFunc("GET /api/metrics", a.authed(a.getMetrics))
+	m.HandleFunc("POST /api/diagnostics", a.authed(a.postDiagnostics))
 	m.HandleFunc("POST /api/backup", a.authed(a.postBackup))
 	m.HandleFunc("GET /api/update", a.authed(a.getUpdate))
 	m.HandleFunc("POST /api/update/check", a.authed(a.postUpdateCheck))
@@ -661,6 +663,11 @@ func (a *App) putXUI(w http.ResponseWriter, r *http.Request, s auth.Session) {
 }
 
 func (a *App) queueEntry(w http.ResponseWriter, r *http.Request, s auth.Session, action, detail string) {
+	a.queueEntryWith(w, r, s, action, detail, nil)
+}
+
+// queueEntryWith also returns extra fields next to the job ID.
+func (a *App) queueEntryWith(w http.ResponseWriter, r *http.Request, s auth.Session, action, detail string, extra map[string]any) {
 	n, err := a.localNode()
 	if err != nil {
 		apiError(w, 500, err.Error())
@@ -676,7 +683,11 @@ func (a *App) queueEntry(w http.ResponseWriter, r *http.Request, s auth.Session,
 		return
 	}
 	a.audit(r, s, action, detail)
-	writeJSON(w, 202, map[string]int64{"job_id": id})
+	out := map[string]any{"job_id": id}
+	for k, v := range extra {
+		out[k] = v
+	}
+	writeJSON(w, 202, out)
 }
 
 func (a *App) serviceSecret(w http.ResponseWriter, r *http.Request, s auth.Session) {

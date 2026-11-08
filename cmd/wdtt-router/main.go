@@ -326,6 +326,9 @@ func agentMain(ctx context.Context, args []string) error {
 		return err
 	case "confirm":
 		return agent.Confirm(ctx)
+	case "diag":
+		fmt.Print(agent.Diagnostics(ctx))
+		return nil
 	case "boot":
 		return agent.Boot(ctx)
 	case "maintain":

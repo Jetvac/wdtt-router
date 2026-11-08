@@ -86,7 +86,7 @@ export function LinkModal({ id, title, onClose }: { id: string | null; title: st
   )
 }
 
-function KeyForm({ open, edit, onClose, onSaved }: { open: boolean; edit: WDTTKey | null; onClose: () => void; onSaved: (job?: number) => void }) {
+function KeyForm({ open, edit, onClose, onSaved }: { open: boolean; edit: WDTTKey | null; onClose: () => void; onSaved: (job?: number, created?: { id: string; name: string }) => void }) {
   const [form] = Form.useForm()
   const [busy, setBusy] = useState(false)
   const { message } = App.useApp()
@@ -103,8 +103,8 @@ function KeyForm({ open, edit, onClose, onSaved }: { open: boolean; edit: WDTTKe
         const r = await patch<{ job_id?: number }>(`/api/wdtt/keys/${edit.id}`, body)
         onSaved(r.job_id)
       } else {
-        const r = await post<{ job_id: number }>('/api/wdtt/keys', { name: v.name, days: v.days, vk_hash: v.vk_hash || '' })
-        onSaved(r.job_id)
+        const r = await post<{ job_id: number; id?: string }>('/api/wdtt/keys', { name: v.name, days: v.days, vk_hash: v.vk_hash || '' })
+        onSaved(r.job_id, r.id ? { id: r.id, name: v.name } : undefined)
       }
       onClose()
     } catch (e: any) {
@@ -135,6 +135,9 @@ export function WDTTKeysCard({ data, reload }: { data: WDTTKeysData | null; relo
   const { message, modal } = App.useApp()
   const [form, setForm] = useState<{ open: boolean; edit: WDTTKey | null }>({ open: false, edit: null })
   const [linkFor, setLinkFor] = useState<WDTTKey | null>(null)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const shown = (data?.keys || []).filter((k) => !q || k.name.toLowerCase().includes(q) || (k.device_id || '').toLowerCase().includes(q) || (k.device_ip || '').includes(q))
 
   const done = (job?: number) => {
     if (job) track(job, reload)
@@ -196,11 +199,12 @@ export function WDTTKeysCard({ data, reload }: { data: WDTTKeysData | null; relo
       <Typography.Paragraph type="secondary">
         Отдельный пароль для каждого человека или устройства. Ключ привязывается к первому подключившемуся устройству; его можно ограничить по сроку, отключить или отвязать, не трогая остальных.
       </Typography.Paragraph>
+      {(data?.keys.length || 0) > 5 && <Input.Search allowClear placeholder="Поиск по названию, устройству или адресу" value={query} onChange={(e) => setQuery(e.target.value)} style={{ marginBottom: 12, maxWidth: 360 }} />}
       <Table<WDTTKey>
         rowKey="id"
         size="small"
         loading={!data}
-        dataSource={data?.keys}
+        dataSource={shown}
         pagination={false}
         scroll={{ x: 720 }}
         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Ключей нет — пока подключается только пароль владельца" /> }}
@@ -267,7 +271,11 @@ export function WDTTKeysCard({ data, reload }: { data: WDTTKeysData | null; relo
           },
         ]}
       />
-      <KeyForm open={form.open} edit={form.edit} onClose={() => setForm({ open: false, edit: null })} onSaved={done} />
+      <KeyForm open={form.open} edit={form.edit} onClose={() => setForm({ open: false, edit: null })} onSaved={(job, created) => {
+          done(job)
+          // A new key: show its link and QR code right away.
+          if (created) setLinkFor({ id: created.id, name: created.name } as WDTTKey)
+        }} />
       <LinkModal id={linkFor?.id ?? null} title={linkFor ? `Подключение: ${linkFor.name}` : ''} onClose={() => setLinkFor(null)} />
     </Card>
   )

@@ -6,6 +6,7 @@ import { navigate } from '../App'
 import { JobStatusTag, useJobs } from '../components/Jobs'
 import type { NodeView, Overview } from '../types'
 import { fromNow, HealthBadge, MeshTag, RoleTag, usePoll } from '../util'
+import { EventsCard, MetricsCard } from '../components/Activity'
 
 export default function Dashboard() {
   const { data, loading, reload } = usePoll<Overview>('/api/overview', 10000)
@@ -149,6 +150,15 @@ export default function Dashboard() {
           <Card title="Последние задачи" extra={<Button type="link" onClick={() => navigate('/jobs')}>Все задачи</Button>}>
             <RecentJobs data={data} />
           </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={16}>
+          <MetricsCard nodes={data.nodes} />
+        </Col>
+        <Col xs={24} xl={8}>
+          <EventsCard />
         </Col>
       </Row>
     </Space>

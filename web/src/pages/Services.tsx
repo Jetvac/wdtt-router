@@ -3,18 +3,19 @@ import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, 
 import { EyeOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons'
 import { get, post, put } from '../api'
 import { useJobs } from '../components/Jobs'
-import { LinkModal, useWDTTKeys, WDTTKeysCard } from '../components/WDTTKeys'
+import { LinkModal, useWDTTKeys } from '../components/WDTTKeys'
+import { navigate } from '../App'
 import type { EntrySettings, Status, WDTTKeysData } from '../types'
 import { fmtBytes, usePoll } from '../util'
 
-interface ServicesData {
+export interface ServicesData {
   settings: EntrySettings
   status: Status
   public_host: string
   xui_credentials: boolean
 }
 
-function StateTag({ installed, active }: { installed: boolean; active?: string }) {
+export function StateTag({ installed, active }: { installed: boolean; active?: string }) {
   if (!installed) return <Tag>не установлен</Tag>
   return active === 'active' ? <Tag color="success">работает</Tag> : <Tag color="error">{active || 'остановлен'}</Tag>
 }
@@ -37,23 +38,24 @@ export default function Services() {
       />
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <WDTTCard
-            data={data}
-            keys={keys.data}
-            reload={() => {
-              reload()
-              keys.reload()
-            }}
-          />
+          <Card
+            title={
+              <Space>
+                WDTT
+                <StateTag installed={data.status.wdtt_installed} active={data.status.wdtt_active} />
+              </Space>
+            }
+            extra={<Button type="primary" onClick={() => navigate('/wdtt')}>Открыть</Button>}
+          >
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              WireGuard через TURN-серверы VK для клиентов WDTT. Настройки сервера, ключи доступа, ссылки и QR-коды — на странице WDTT.
+              {keys.data ? ` Ключей: ${keys.data.keys.length}.` : ''}
+            </Typography.Paragraph>
+          </Card>
         </Col>
         <Col xs={24} xl={12}>
           <XUICard data={data} reload={reload} />
         </Col>
-        {data.settings.wdtt_enabled && (
-          <Col span={24}>
-            <WDTTKeysCard data={keys.data} reload={keys.reload} />
-          </Col>
-        )}
       </Row>
     </Space>
   )
@@ -72,7 +74,7 @@ function useQueue(reload: () => void) {
   }
 }
 
-function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysData | null; reload: () => void }) {
+export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysData | null; reload: () => void }) {
   const s = data.settings
   const st = data.status
   const rt = keys?.runtime

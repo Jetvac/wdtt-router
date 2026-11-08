@@ -172,7 +172,7 @@ func (a *App) createWDTTKey(w http.ResponseWriter, r *http.Request, s auth.Sessi
 		apiError(w, 500, err.Error())
 		return
 	}
-	a.queueEntry(w, r, s, "wdtt.key.create", k.ID+" "+k.Name)
+	a.queueEntryWith(w, r, s, "wdtt.key.create", k.ID+" "+k.Name, map[string]any{"id": k.ID})
 }
 
 func (a *App) patchWDTTKey(w http.ResponseWriter, r *http.Request, s auth.Session) {

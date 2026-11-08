@@ -35,3 +35,16 @@ func TestPanelMeshRules(t *testing.T) {
 		t.Fatalf("Mesh-only panel rules wrong:\n%s", r)
 	}
 }
+
+func TestRedact(t *testing.T) {
+	in := `"password": "s3cr3t", token=abc123 "uuid":"1234-5678" Mesh ok PrivateKey = YNqHbf=`
+	out := Redact(in)
+	for _, leak := range []string{"s3cr3t", "abc123", "1234-5678", "YNqHbf"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("%q leaked: %s", leak, out)
+		}
+	}
+	if !strings.Contains(out, "Mesh ok") {
+		t.Fatal("ordinary text removed")
+	}
+}

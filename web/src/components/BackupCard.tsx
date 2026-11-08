@@ -48,3 +48,29 @@ export default function BackupCard() {
     </Card>
   )
 }
+
+/** Logs and state of every server in one ZIP, secrets masked. */
+export function DiagnosticsCard() {
+  const [busy, setBusy] = useState(false)
+  const { message } = App.useApp()
+  const run = async () => {
+    setBusy(true)
+    try {
+      await download('/api/diagnostics', {}, 'wdtt-router-diagnostics.zip')
+    } catch (e: any) {
+      message.error(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card title="Диагностика">
+      <Typography.Paragraph type="secondary">
+        Журналы служб за последний час, состояние служб, правила firewall, маршруты и Mesh со всех серверов — в одном архиве. Пароли, ключи и токены в нём скрыты, файлы настроек не включаются.
+      </Typography.Paragraph>
+      <Button icon={<DownloadOutlined />} loading={busy} onClick={run}>
+        Скачать диагностику
+      </Button>
+    </Card>
+  )
+}

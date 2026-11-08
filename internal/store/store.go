@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS wdtt_keys (
 	created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS metrics (node_id INTEGER NOT NULL, at INTEGER NOT NULL, load REAL NOT NULL DEFAULT 0, mem REAL NOT NULL DEFAULT 0,
+	rx_mbps REAL NOT NULL DEFAULT 0, tx_mbps REAL NOT NULL DEFAULT 0, sessions INTEGER NOT NULL DEFAULT -1, ping_ms INTEGER NOT NULL DEFAULT -1);
+CREATE INDEX IF NOT EXISTS idx_metrics_at ON metrics(at);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at DESC);
 `)
@@ -211,6 +214,9 @@ func (s *Store) DeleteSecret(name string) error {
 // Prune removes old history: audit entries and finished jobs older than 30 days.
 func (s *Store) Prune() error {
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := s.DB.Exec(`DELETE FROM metrics WHERE at < ?`, time.Now().Add(-7*24*time.Hour).Unix()); err != nil {
+		return fmt.Errorf("prune metrics: %w", err)
+	}
 	if _, err := s.DB.Exec(`DELETE FROM events WHERE at < ?`, cutoff); err != nil {
 		return fmt.Errorf("prune events: %w", err)
 	}

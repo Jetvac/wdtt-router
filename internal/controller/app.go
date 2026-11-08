@@ -45,6 +45,7 @@ type App struct {
 	loginFails map[string][]time.Time
 
 	mon       monitor
+	rates     rates
 	pair      pairing
 	botHealth botHealth
 }

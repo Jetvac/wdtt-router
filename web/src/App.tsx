@@ -8,6 +8,9 @@ import {
   DashboardOutlined,
   LockOutlined,
   LogoutOutlined,
+  MobileOutlined,
+  MoonOutlined,
+  SunOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SafetyCertificateOutlined,
@@ -27,7 +30,18 @@ import JobsPage from './pages/JobsPage'
 import Audit from './pages/Audit'
 import Settings from './pages/Settings'
 import Security from './pages/Security'
+import WDTTPage from './pages/WDTT'
 import { UpdateBanner } from './components/Update'
+import { useThemeMode } from './theme'
+
+function ThemeToggle() {
+  const { mode, toggle } = useThemeMode()
+  return (
+    <Tooltip title={mode === 'dark' ? 'Светлая тема' : 'Тёмная тема'}>
+      <Button type="text" icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />} onClick={toggle} aria-label="Тема" />
+    </Tooltip>
+  )
+}
 
 const { Header, Sider, Content } = Layout
 
@@ -35,6 +49,7 @@ export const routes = [
   { key: '/', label: 'Обзор', icon: <DashboardOutlined />, el: Dashboard },
   { key: '/servers', label: 'Серверы', icon: <CloudServerOutlined />, el: Servers },
   { key: '/chain', label: 'Цепочка', icon: <ApartmentOutlined />, el: Chain },
+  { key: '/wdtt', label: 'WDTT', icon: <MobileOutlined />, el: WDTTPage },
   { key: '/services', label: 'Сервисы', icon: <AppstoreOutlined />, el: Services },
   { key: '/security', label: 'Безопасность', icon: <SafetyCertificateOutlined />, el: Security },
   { key: '/cloudflare', label: 'Cloudflare Mesh', icon: <CloudOutlined />, el: Cloudflare },
@@ -227,6 +242,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </Typography.Text>
           </Space>
           <Space size="large">
+            <ThemeToggle />
             <Tooltip title="Задачи">
               <Badge count={active} size="small">
                 <Button type="text" icon={<UnorderedListOutlined />} onClick={() => navigate('/jobs')} aria-label="Задачи" />

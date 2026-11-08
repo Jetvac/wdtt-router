@@ -218,3 +218,27 @@ body {
   font-weight: 500;
   margin-bottom: 2px;
 }
+
+/* Dark theme: what Ant Design tokens do not cover. */
+[data-theme='dark'] body {
+  background: #000;
+}
+[data-theme='dark'] .login-bg {
+  background: linear-gradient(160deg, #0d1a2d 0%, #000 55%);
+}
+[data-theme='dark'] .app-footer,
+[data-theme='dark'] .chain-arrow {
+  color: rgba(255, 255, 255, 0.35);
+}
+[data-theme='dark'] .chain-node.endpoint {
+  background: #141414;
+}
+[data-theme='dark'] .kv span:first-child {
+  color: rgba(255, 255, 255, 0.45);
+}
+[data-theme='dark'] .chain-arrow .line {
+  background: repeating-linear-gradient(90deg, #15417e 0 6px, transparent 6px 10px);
+}
+[data-theme='dark'] .chain-arrow .line::after {
+  border-left-color: #15417e;
+}

@@ -94,6 +94,7 @@ func (a *App) observe(ctx context.Context, n Node, err error) {
 		return
 	}
 	m.fails[n.ID] = 0
+	a.recordMetrics(n)
 	if since, was := m.offline[n.ID]; was {
 		delete(m.offline, n.ID)
 		a.event(EventServer, "🟢 Сервер %s снова на связи (был недоступен %s)", n.Name, ago(time.Since(since)))
@@ -134,6 +135,10 @@ func (a *App) checkChain(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	err := a.probe(cctx, &jobRun{a: a})
 	cancel()
+	var pr ProbeRecord
+	if err == nil && json.Unmarshal([]byte(a.Store.Setting("last_probe", "")), &pr) == nil && pr.OK {
+		a.recordPing(pr.TCPms)
+	}
 	a.mon.mu.Lock()
 	defer a.mon.mu.Unlock()
 	if (err != nil) == a.mon.chainDown {
