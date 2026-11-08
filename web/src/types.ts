@@ -32,7 +32,24 @@ export interface Status {
   xui_installed: boolean
   xui_active: string
   xui_ports: number[] | null
+  net_rx_bytes?: number
+  net_tx_bytes?: number
+  hardening?: HardeningStatus
   problems: string[] | null
+}
+
+export interface HardeningStatus {
+  ssh_password_auth: boolean
+  ssh_root_login: string
+  root_keys: number
+  auto_updates: boolean
+  reboot_required: boolean
+}
+
+export interface Hardening {
+  ssh_keys_only?: boolean
+  auto_updates?: boolean
+  admin_keys?: string[]
 }
 
 export interface NodeView {
@@ -50,6 +67,7 @@ export interface NodeView {
   ssh_allow: string[]
   allow_ping: boolean
   firewall: boolean
+  hardening: Hardening
   status: Status
   last_seen: string
   last_error: string

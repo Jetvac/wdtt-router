@@ -6,6 +6,7 @@ import { navigate } from '../App'
 import { useJobs } from '../components/Jobs'
 import type { NodeView, Overview } from '../types'
 import { RoleTag, usePoll } from '../util'
+import HardeningPanel from '../components/Hardening'
 
 interface Finding {
   ok: boolean
@@ -22,6 +23,12 @@ function audit(n: NodeView, d: Overview): Finding[] {
     f.push({ ok: n.ssh_allow.length > 0, text: n.ssh_allow.length ? `SSH разрешён только с: ${n.ssh_allow.join(', ')}` : 'SSH панели открыт для всех (с защитой от перебора)' })
     f.push({ ok: d.services.panel_allow.length > 0, text: d.services.panel_allow.length ? `Веб-панель доступна только с: ${d.services.panel_allow.join(', ')}` : 'Веб-панель доступна из любого адреса' })
     if (d.services.xui_enabled) f.push({ ok: d.services.xui_route_via_chain, text: d.services.xui_route_via_chain ? 'Трафик 3x-ui идёт через цепочку' : 'Трафик 3x-ui выходит напрямую' })
+  }
+  const h = n.status?.hardening
+  if (h) {
+    f.push({ ok: !h.ssh_password_auth, text: h.ssh_password_auth ? 'Вход по SSH с паролем разрешён' : 'Вход по SSH только по ключу' })
+    f.push({ ok: h.auto_updates, text: h.auto_updates ? 'Обновления безопасности ставятся автоматически' : 'Обновления безопасности не ставятся автоматически' })
+    if (h.reboot_required) f.push({ ok: false, text: 'Установлены обновления, которым нужна перезагрузка сервера' })
   }
   f.push({ ok: !n.allow_ping, text: n.allow_ping ? 'Отвечает на ping' : 'Не отвечает на ping' })
   if (n.status?.revert_pending) f.push({ ok: false, text: 'Изменение firewall ожидает подтверждения' })
@@ -67,7 +74,11 @@ export default function Security() {
                   />
                 ))}
               </Rows>
-              <Typography.Text type="secondary" style={{ display: 'block', margin: '12px 0 6px' }}>
+              <Typography.Text strong style={{ display: 'block', margin: '16px 0 8px' }}>
+                Защита сервера
+              </Typography.Text>
+              <HardeningPanel node={n} reload={reload} />
+              <Typography.Text type="secondary" style={{ display: 'block', margin: '16px 0 6px' }}>
                 Входящие подключения
               </Typography.Text>
               {n.status?.firewall_ports?.length ? (

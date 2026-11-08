@@ -261,6 +261,11 @@ func (a *App) patchNode(w http.ResponseWriter, r *http.Request, s auth.Session) 
 		SSHAllow  *[]string `json:"ssh_allow"`
 		AllowPing *bool     `json:"allow_ping"`
 		Firewall  *bool     `json:"firewall"`
+		Hardening *struct {
+			SSHKeysOnly *bool     `json:"ssh_keys_only"`
+			AutoUpdates *bool     `json:"auto_updates"`
+			AdminKeys   *[]string `json:"admin_keys"`
+		} `json:"hardening"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -302,6 +307,41 @@ func (a *App) patchNode(w http.ResponseWriter, r *http.Request, s auth.Session) 
 	}
 	if body.Firewall != nil {
 		n.Firewall = *body.Firewall
+	}
+	if h := body.Hardening; h != nil {
+		next := n.Hardening
+		if h.AdminKeys != nil {
+			next.AdminKeys = []string{}
+			for _, k := range *h.AdminKeys {
+				if k = strings.TrimSpace(k); k == "" {
+					continue
+				}
+				if !spec.ValidAuthorizedKey(k) {
+					apiError(w, 400, "ключ не распознан: вставьте одну строку открытого ключа (ssh-ed25519 …, ecdsa-… или ssh-rsa от 2048 бит) без опций")
+					return
+				}
+				if !slices.Contains(next.AdminKeys, k) {
+					next.AdminKeys = append(next.AdminKeys, k)
+				}
+			}
+		}
+		if h.SSHKeysOnly != nil {
+			next.SSHKeysOnly = *h.SSHKeysOnly
+		}
+		if h.AutoUpdates != nil {
+			next.AutoUpdates = *h.AutoUpdates
+		}
+		// Without any key for root, "keys only" would leave just the
+		// provider's console. The panel's own key counts on remote servers.
+		if next.SSHKeysOnly && len(next.AdminKeys) == 0 && n.Local && (n.Status.Hardening == nil || n.Status.Hardening.RootKeys == 0) {
+			apiError(w, 400, "добавьте свой SSH-ключ: иначе после отключения паролей войти на сервер панели можно будет только через консоль провайдера")
+			return
+		}
+		if err := a.setHardening(n.ID, next); err != nil {
+			apiError(w, 500, err.Error())
+			return
+		}
+		n.Hardening = next
 	}
 	_, err = a.Store.DB.Exec(`UPDATE nodes SET name=?, ssh_public=?, ssh_allow=?, allow_ping=?, firewall=? WHERE id=?`, n.Name, b2i(n.SSHPublic), strings.Join(n.SSHAllow, ","), b2i(n.AllowPing), b2i(n.Firewall), n.ID)
 	if err != nil {

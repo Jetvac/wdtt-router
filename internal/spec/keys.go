@@ -3,9 +3,13 @@ package spec
 import (
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
 	"math/big"
+	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // HopKeys is a VLESS Encryption key pair (ML-KEM-768 + X25519 handshake,
@@ -56,4 +60,27 @@ func NewPassword(n int) string {
 func RandomPort() int {
 	v, _ := rand.Int(rand.Reader, big.NewInt(40000))
 	return 20000 + int(v.Int64())
+}
+
+// ValidAuthorizedKey accepts one plain public key line ("type base64
+// [comment]") without authorized_keys options.
+func ValidAuthorizedKey(line string) bool {
+	if strings.ContainsAny(line, "\r\n") || len(line) > 16384 {
+		return false
+	}
+	pub, _, opts, rest, err := ssh.ParseAuthorizedKey([]byte(line))
+	if err != nil || len(opts) > 0 || len(rest) > 0 {
+		return false
+	}
+	switch pub.Type() {
+	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521, ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+		return true
+	case ssh.KeyAlgoRSA:
+		if k, ok := pub.(ssh.CryptoPublicKey); ok {
+			if r, ok := k.CryptoPublicKey().(*rsa.PublicKey); ok {
+				return r.N.BitLen() >= 2048
+			}
+		}
+	}
+	return false
 }

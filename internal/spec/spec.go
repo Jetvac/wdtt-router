@@ -33,6 +33,29 @@ type NodeSpec struct {
 	Hop      *HopSpec     `json:"hop,omitempty"`   // relay and exit
 	Entry    *EntrySpec   `json:"entry,omitempty"` // entry only
 	Firewall FirewallSpec `json:"firewall"`
+	// Hardening of the host itself (SSH, updates).
+	Hardening HardeningSpec `json:"hardening"`
+}
+
+// HardeningSpec tightens the host beyond the firewall.
+type HardeningSpec struct {
+	// SSHKeysOnly turns off password and keyboard-interactive SSH logins
+	// (root may log in with a key only).
+	SSHKeysOnly bool `json:"ssh_keys_only,omitempty"`
+	// AutoUpdates installs security updates daily (unattended-upgrades).
+	AutoUpdates bool `json:"auto_updates,omitempty"`
+	// AdminKeys are the administrator's own SSH public keys for root, kept
+	// in a marked block of authorized_keys (the panel's key is separate).
+	AdminKeys []string `json:"admin_keys,omitempty"`
+}
+
+// HardeningStatus is what is actually in effect on the host.
+type HardeningStatus struct {
+	SSHPasswordAuth bool   `json:"ssh_password_auth"`
+	SSHRootLogin    string `json:"ssh_root_login"`
+	RootKeys        int    `json:"root_keys"`
+	AutoUpdates     bool   `json:"auto_updates"`
+	RebootRequired  bool   `json:"reboot_required"`
 }
 
 // MeshSpec describes Cloudflare Mesh enrolment of the node.
@@ -222,6 +245,13 @@ func (s *NodeSpec) Validate() error {
 		if !validPort(e.SocksPort) || !reName.MatchString(e.SocksUser) || !rePass.MatchString(e.SocksPass) {
 			return errors.New("invalid local proxy settings")
 		}
+	}
+	for _, k := range s.Hardening.AdminKeys {
+		if !ValidAuthorizedKey(k) {
+			return errors.New("invalid administrator SSH key")
+		}
+	}
+	if e := s.Entry; e != nil {
 		if w := e.WDTT; w.Enabled {
 			if !validPort(w.DTLSPort) || !validPort(w.WGPort) || !validPort(w.TProxy) || w.DTLSPort == w.WGPort || !rePass.MatchString(w.Password) {
 				return errors.New("invalid WDTT settings")
@@ -283,6 +313,8 @@ type Status struct {
 	MemTotalMB   int64   `json:"mem_total_mb"`
 	MemAvailMB   int64   `json:"mem_avail_mb"`
 	DiskFreeMB   int64   `json:"disk_free_mb"`
+	NetRxBytes   int64   `json:"net_rx_bytes"`
+	NetTxBytes   int64   `json:"net_tx_bytes"`
 
 	SpecRole    string `json:"spec_role"`
 	SpecApplied string `json:"spec_applied"`
@@ -310,6 +342,8 @@ type Status struct {
 	XUIInstalled bool   `json:"xui_installed"`
 	XUIActive    string `json:"xui_active"`
 	XUIPorts     []int  `json:"xui_ports"`
+
+	Hardening *HardeningStatus `json:"hardening,omitempty"`
 
 	Problems []string `json:"problems"`
 }

@@ -117,6 +117,9 @@ func Inspect(ctx context.Context) spec.Status {
 		s.DiskFreeMB = int64(fs.Bavail) * int64(fs.Bsize) / (1 << 20)
 	}
 
+	s.Hardening = inspectHardening(ctx)
+	s.NetRxBytes, s.NetTxBytes = ifaceCounters(s.PublicIface)
+
 	if sp, raw, err := loadSaved(); err == nil {
 		s.SpecRole = sp.Role
 		s.SpecHash = specHash(raw)
@@ -179,4 +182,20 @@ func Inspect(ctx context.Context) spec.Status {
 		s.Problems = append(s.Problems, "WDTT service is not running")
 	}
 	return s
+}
+
+// ifaceCounters returns the byte counters of a network interface.
+func ifaceCounters(iface string) (rx, tx int64) {
+	if iface == "" || strings.ContainsAny(iface, "/.") {
+		return 0, 0
+	}
+	read := func(name string) int64 {
+		b, err := os.ReadFile("/sys/class/net/" + iface + "/statistics/" + name)
+		if err != nil {
+			return 0
+		}
+		v, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		return v
+	}
+	return read("rx_bytes"), read("tx_bytes")
 }

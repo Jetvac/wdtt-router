@@ -35,7 +35,9 @@ type Node struct {
 	SSHAllow    []string    `json:"ssh_allow"`
 	AllowPing   bool        `json:"allow_ping"`
 	Firewall    bool        `json:"firewall"`
-	Status      spec.Status `json:"status"`
+	// Hardening is kept in the settings table (node:<id>:hardening).
+	Hardening spec.HardeningSpec `json:"hardening"`
+	Status    spec.Status        `json:"status"`
 	LastSeen    string      `json:"last_seen"`
 	LastError   string      `json:"last_error"`
 	CreatedAt   string      `json:"created_at"`
@@ -83,7 +85,15 @@ func (a *App) nodes() ([]Node, error) {
 		}
 		out = append(out, n)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// After the rows are closed: the database has a single connection.
+	for i := range out {
+		out[i].Hardening = a.hardening(out[i].ID)
+	}
+	return out, nil
 }
 
 func (a *App) node(id int64) (Node, error) {
@@ -91,7 +101,19 @@ func (a *App) node(id int64) (Node, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return n, errors.New("сервер не найден")
 	}
+	n.Hardening = a.hardening(id)
 	return n, err
+}
+
+func (a *App) hardening(id int64) spec.HardeningSpec {
+	var h spec.HardeningSpec
+	_ = json.Unmarshal([]byte(a.Store.Setting(fmt.Sprintf("node:%d:hardening", id), "{}")), &h)
+	return h
+}
+
+func (a *App) setHardening(id int64, h spec.HardeningSpec) error {
+	b, _ := json.Marshal(h)
+	return a.Store.SetSetting(fmt.Sprintf("node:%d:hardening", id), string(b))
 }
 
 func (a *App) saveNode(n Node) error {
