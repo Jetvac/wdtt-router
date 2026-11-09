@@ -128,7 +128,7 @@ func (c *Conn) login(ctx context.Context) (panelSession, error) {
 		return panelSession{}, err
 	}
 	var out, errb bytes.Buffer
-	if err := runWith(ctx, cl, "wdtt-router desktop-login --device "+shellQuote(c.app.device), &out, &errb); err != nil {
+	if err := runWith(ctx, cl, "wdtt-router desktop-login --device "+shellQuote(c.app.device), nil, &out, &errb); err != nil {
 		msg := errb.String()
 		switch {
 		case strings.Contains(msg, "wdtt-router serve"): // the usage text of a version without desktop-login

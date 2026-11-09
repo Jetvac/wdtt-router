@@ -102,7 +102,7 @@ func dial(ctx context.Context, srv Server, signer ssh.Signer, login *Login) (*ss
 // run runs a command and returns its output; stderr goes into the error.
 func run(ctx context.Context, c *ssh.Client, cmd string) (string, error) {
 	var out, errb bytes.Buffer
-	err := runWith(ctx, c, cmd, &out, &errb)
+	err := runWith(ctx, c, cmd, nil, &out, &errb)
 	if err != nil {
 		if msg := strings.TrimSpace(errb.String()); msg != "" {
 			return out.String(), fmt.Errorf("%s", lastLines(msg, 3))
@@ -112,13 +112,16 @@ func run(ctx context.Context, c *ssh.Client, cmd string) (string, error) {
 	return out.String(), nil
 }
 
-func runWith(ctx context.Context, c *ssh.Client, cmd string, stdout, stderr io.Writer) error {
+func runWith(ctx context.Context, c *ssh.Client, cmd string, stdin []byte, stdout, stderr io.Writer) error {
 	s, err := c.NewSession()
 	if err != nil {
 		return err
 	}
 	defer s.Close()
 	s.Stdout, s.Stderr = stdout, stderr
+	if stdin != nil {
+		s.Stdin = bytes.NewReader(stdin)
+	}
 	done := make(chan error, 1)
 	go func() { done <- s.Run(cmd) }()
 	select {
@@ -131,9 +134,9 @@ func runWith(ctx context.Context, c *ssh.Client, cmd string, stdout, stderr io.W
 	}
 }
 
-// stream runs a command and passes each output line (stdout and stderr) to
-// line as it appears.
-func stream(ctx context.Context, c *ssh.Client, cmd string, line func(string)) error {
+// stream runs a command with stdin and passes each output line (stdout and
+// stderr) to line as it appears.
+func stream(ctx context.Context, c *ssh.Client, cmd string, stdin []byte, line func(string)) error {
 	pr, pw := io.Pipe()
 	var mu sync.Mutex
 	w := lockedWriter{w: pw, mu: &mu}
@@ -144,7 +147,7 @@ func stream(ctx context.Context, c *ssh.Client, cmd string, line func(string)) e
 			line(cleanLine(sc.Text()))
 		}
 	}()
-	err := runWith(ctx, c, cmd, w, w)
+	err := runWith(ctx, c, cmd, stdin, w, w)
 	pw.Close()
 	return err
 }

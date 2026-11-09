@@ -85,6 +85,27 @@ arch() {
   esac
 }
 
+# download BASE NAME DEST fetches a release file. The direct link sometimes
+# answers 504 for a long time while the GitHub API serves the same file, so
+# the API is the fallback. The source does not matter for safety: every file
+# is checked against the signed SHA256SUMS.
+download() {
+  local base=$1 name=$2 dest=$3 rel url
+  curl -fsSL --retry 2 --retry-all-errors --connect-timeout 15 --max-time 300 -o "$dest" "$base/$name" 2>/dev/null && return 0
+  log "Прямая ссылка GitHub не ответила, загружаю $name через API"
+  if [[ $VERSION == latest ]]; then
+    rel="https://api.github.com/repos/$REPO/releases/latest"
+  else
+    rel="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
+  fi
+  # The asset's own "url" comes right before its "name" in the API answer.
+  url=$(curl -fsSL --retry 3 --connect-timeout 15 -H 'Accept: application/vnd.github+json' "$rel" \
+    | grep -oE '"(url|name)": *"[^"]*"' \
+    | awk -F'"' -v n="$name" '$2 == "url" { u = $4 } $2 == "name" && $4 == n && u ~ /\/releases\/assets\// { print u; exit }' || true)
+  [[ -n $url ]] || return 1
+  curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -H 'Accept: application/octet-stream' -o "$dest" "$url"
+}
+
 # fetch downloads and verifies the release archive, leaving the binary in $tmp.
 fetch() {
   local a name base
@@ -102,9 +123,9 @@ fetch() {
       base="https://github.com/$REPO/releases/download/$VERSION"
     fi
     log "Загружаю $name ($VERSION)"
-    curl -fsSL --retry 3 -o "$tmp/$name" "$base/$name"
-    curl -fsSL --retry 3 -o "$tmp/SHA256SUMS" "$base/SHA256SUMS"
-    curl -fsSL --retry 3 -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" || true
+    download "$base" "$name" "$tmp/$name"
+    download "$base" SHA256SUMS "$tmp/SHA256SUMS"
+    download "$base" SHA256SUMS.sig "$tmp/SHA256SUMS.sig" || true
   fi
   verify_signature
   (cd "$tmp" && grep -E "^[0-9a-f]{64} [ *]$name\$" SHA256SUMS | sha256sum -c --quiet -) || die "контрольная сумма архива не совпала"

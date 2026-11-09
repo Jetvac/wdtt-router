@@ -78,8 +78,11 @@ func Latest(ctx context.Context) (Release, error) {
 	return Release{Tag: r.Tag, Name: r.Name, Notes: notes, URL: r.URL, Published: r.Published}, nil
 }
 
-func get(ctx context.Context, url string, limit int64) ([]byte, error) {
+func get(ctx context.Context, url string, limit int64, header ...string) ([]byte, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	for i := 0; i+1 < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -91,22 +94,80 @@ func get(ctx context.Context, url string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
-// Installer downloads install.sh of a release and returns it only if its
-// checksum is listed in the release's correctly signed SHA256SUMS.
-func Installer(ctx context.Context, tag string) ([]byte, error) {
-	base := "https://github.com/" + Repo + "/releases/download/" + tag + "/"
-	sums, err := get(ctx, base+"SHA256SUMS", 64<<10)
+// Asset downloads a file of a release. The direct link
+// (github.com/…/releases/download/…) sometimes answers 504 for a long time
+// while the API serves the same file fine, so the API is the fallback.
+// Where a file comes from does not matter for safety: everything is checked
+// against the signed SHA256SUMS.
+func Asset(ctx context.Context, tag, name string, limit int64) ([]byte, error) {
+	direct := "https://github.com/" + Repo + "/releases/download/" + tag + "/" + name
+	if tag == "latest" {
+		direct = "https://github.com/" + Repo + "/releases/latest/download/" + name
+	}
+	var firstErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		b, err := get(cctx, direct, limit)
+		cancel()
+		if err == nil {
+			return b, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	b, err := apiAsset(ctx, tag, name, limit)
+	if err != nil {
+		return nil, fmt.Errorf("%v; через API GitHub: %v", firstErr, err)
+	}
+	return b, nil
+}
+
+// apiAsset downloads a release file through api.github.com.
+func apiAsset(ctx context.Context, tag, name string, limit int64) ([]byte, error) {
+	rel := "https://api.github.com/repos/" + Repo + "/releases/tags/" + tag
+	if tag == "latest" {
+		rel = "https://api.github.com/repos/" + Repo + "/releases/latest"
+	}
+	b, err := get(ctx, rel, 4<<20, "Accept", "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
-	sig, err := get(ctx, base+"SHA256SUMS.sig", 1<<10)
+	var r struct {
+		Assets []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	for _, a := range r.Assets {
+		if a.Name == name {
+			return get(ctx, a.URL, limit, "Accept", "application/octet-stream")
+		}
+	}
+	return nil, fmt.Errorf("в релизе %s нет файла %s", tag, name)
+}
+
+// Installer downloads install.sh of a release and returns it only if its
+// checksum is listed in the release's correctly signed SHA256SUMS.
+func Installer(ctx context.Context, tag string) ([]byte, error) {
+	sums, err := Asset(ctx, tag, "SHA256SUMS", 64<<10)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := Asset(ctx, tag, "SHA256SUMS.sig", 1<<10)
 	if err != nil {
 		return nil, fmt.Errorf("the release has no signature: %w", err)
 	}
 	if err := Verify(sums, sig); err != nil {
 		return nil, err
 	}
-	script, err := get(ctx, base+"install.sh", 1<<20)
+	script, err := Asset(ctx, tag, "install.sh", 1<<20)
 	if err != nil {
 		return nil, err
 	}

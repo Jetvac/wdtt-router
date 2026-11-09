@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Jetvac/wdtt-router/internal/update"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -206,8 +207,6 @@ func logState(o *op, r checkResult) {
 	}
 }
 
-const installerURL = "https://github.com/Jetvac/wdtt-router/releases/latest/download/install.sh"
-
 // serverOp installs, updates or restarts the panel on a saved server, or
 // just checks it again.
 func (a *App) serverOp(ctx context.Context, o *op, srv Server, action, publicHost string) (any, error) {
@@ -232,15 +231,22 @@ func (a *App) serverOp(ctx context.Context, o *op, srv Server, action, publicHos
 			// The panel and the app use the same certificate check; nothing to
 			// remember here, the app reads the fingerprint over SSH.
 		}
-		o.Log("Загружаю установщик с GitHub (релиз подписан, установщик проверяет подпись)")
+		// The installer is fetched here and checked against the signed
+		// SHA256SUMS before it goes to the server; it then checks the
+		// archive it downloads the same way.
+		o.Log("Загружаю установщик последнего релиза и проверяю его подпись")
+		installer, err := update.Installer(ctx, "latest")
+		if err != nil {
+			return nil, fmt.Errorf("установщик: %w", err)
+		}
+		o.Log("Подпись установщика проверена")
 		script := `set -e
 export DEBIAN_FRONTEND=noninteractive
-command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl ca-certificates; }
 f=$(mktemp)
 trap 'rm -f "$f"' EXIT
-curl -fsSL --retry 3 -o "$f" ` + shellQuote(installerURL) + `
+cat > "$f"
 bash "$f" ` + args
-		err = stream(ctx, cl, script, func(line string) {
+		err = stream(ctx, cl, script, installer, func(line string) {
 			switch {
 			case strings.HasPrefix(line, "Password:"):
 				res.Password = strings.TrimSpace(strings.TrimPrefix(line, "Password:"))
