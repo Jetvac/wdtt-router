@@ -333,7 +333,19 @@ function AddServer({ state, onDone, onClose }: { state: AppState; onDone: () => 
               type="info"
               showIcon
               title="Сервер ещё не знает ключ приложения"
-              description="Введите пароль root (его присылает хостинг). Он нужен один раз: приложение добавит на сервер свой ключ и дальше будет входить по нему. Пароль нигде не сохраняется."
+              description={
+                <>
+                  Введите пароль root (его присылает хостинг). Он нужен один раз: приложение добавит на сервер свой ключ и дальше будет входить по нему. Пароль нигде не
+                  сохраняется. Если вход по паролю на сервере отключён, выполните на нём под root эту команду и нажмите «Подключить» без пароля:
+                  <Typography.Paragraph
+                    code
+                    copyable={{ text: `mkdir -p ~/.ssh && echo '${state.public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys` }}
+                    style={{ wordBreak: 'break-all', margin: '8px 0 0', fontSize: 12 }}
+                  >
+                    {`mkdir -p ~/.ssh && echo '${state.public_key}' >> ~/.ssh/authorized_keys`}
+                  </Typography.Paragraph>
+                </>
+              }
             />
           )}
           <Form.Item
@@ -341,7 +353,7 @@ function AddServer({ state, onDone, onClose }: { state: AppState; onDone: () => 
             label="Пароль root"
             extra={
               needLogin
-                ? 'Или добавьте на сервер ключ приложения (внизу страницы) и нажмите «Подключить» без пароля.'
+                ? 'Или добавьте ключ приложения командой выше и нажмите «Подключить» без пароля.'
                 : 'Не нужен, если ключ приложения уже добавлен на сервер. Пароль используется один раз и не сохраняется.'
             }
           >

@@ -17,6 +17,7 @@ import (
 	"github.com/Jetvac/wdtt-router/internal/auth"
 	"github.com/Jetvac/wdtt-router/internal/cfapi"
 	"github.com/Jetvac/wdtt-router/internal/spec"
+	"github.com/Jetvac/wdtt-router/internal/sshx"
 )
 
 func (a *App) routes() http.Handler {
@@ -52,6 +53,7 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("PUT /api/cloudflare", a.authed(a.putCloudflare))
 	m.HandleFunc("GET /api/cloudflare/preflight", a.authed(a.cfPreflight))
 	m.HandleFunc("POST /api/cloudflare/fix", a.authed(a.cfFix))
+	m.HandleFunc("DELETE /api/cloudflare/connectors/{id}", a.authed(a.deleteStaleConnector))
 
 	m.HandleFunc("GET /api/settings", a.authed(a.getSettings))
 	m.HandleFunc("PUT /api/settings/panel", a.authed(a.putPanel))
@@ -245,8 +247,8 @@ func (a *App) addNode(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		apiError(w, 400, "некорректный адрес или порт SSH")
 		return
 	}
-	if in.Password == "" || len(in.Password) > 256 {
-		apiError(w, 400, "введите пароль root")
+	if len(in.Password) > 256 {
+		apiError(w, 400, "слишком длинный пароль")
 		return
 	}
 	var dup int
@@ -327,6 +329,7 @@ func (a *App) patchNode(w http.ResponseWriter, r *http.Request, s auth.Session) 
 			return
 		}
 		n.SSHPublic = *body.SSHPublic
+		_ = a.Store.SetSetting(sshOpenedKey(n.ID), "") // the user decides from now on
 	}
 	if body.AllowPing != nil {
 		n.AllowPing = *body.AllowPing
@@ -742,6 +745,51 @@ func (a *App) resetXUI(w http.ResponseWriter, r *http.Request, s auth.Session) {
 
 // ---- Cloudflare ------------------------------------------------------------
 
+// deleteStaleConnector removes a Mesh node the panel does not use, such as
+// one left over from a server that was reinstalled. Nodes of this panel are
+// removed with "Отключить от Mesh"; a connected node is never removed here.
+func (a *App) deleteStaleConnector(w http.ResponseWriter, r *http.Request, s auth.Session) {
+	id := r.PathValue("id")
+	var n int
+	_ = a.Store.DB.QueryRow(`SELECT COUNT(*) FROM cf_resources WHERE id=?`, id).Scan(&n)
+	if n == 0 {
+		_ = a.Store.DB.QueryRow(`SELECT COUNT(*) FROM nodes WHERE cf_node_id=?`, id).Scan(&n)
+	}
+	if n > 0 {
+		apiError(w, 409, "этот Mesh-узел использует панель — отключите сервер от Mesh в разделе «Серверы»")
+		return
+	}
+	cf, err := a.cfClient()
+	if err != nil {
+		apiError(w, 400, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	conns, err := cf.Connectors(ctx)
+	if err != nil {
+		apiError(w, 502, err.Error())
+		return
+	}
+	for _, c := range conns {
+		if c.ID != id {
+			continue
+		}
+		if c.Status == "healthy" || c.Status == "degraded" {
+			apiError(w, 409, "узел "+c.Name+" сейчас подключён к Mesh — его использует другое устройство")
+			return
+		}
+		if err := cf.DeleteConnector(ctx, id); err != nil {
+			apiError(w, 502, err.Error())
+			return
+		}
+		a.audit(r, s, "cloudflare.connector.delete", c.Name)
+		writeJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
+	apiError(w, 404, "узел не найден")
+}
+
 func (a *App) getCloudflare(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	out := map[string]any{"account_id": a.Store.Setting("cf_account", ""), "team": a.Store.Setting("cf_team", ""), "configured": a.cfConfigured()}
 	cf, err := a.cfClient()
@@ -880,8 +928,9 @@ func (a *App) cfFix(w http.ResponseWriter, r *http.Request, s auth.Session) {
 // ---- settings, jobs, audit -------------------------------------------------
 
 func (a *App) getSettings(w http.ResponseWriter, r *http.Request, s auth.Session) {
+	sshKey, _ := sshx.EnsureKey(a.SSH.KeyPath)
 	writeJSON(w, 200, map[string]any{
-		"panel_port": a.PanelPort, "panel_allow": a.entrySettings().PanelAllow, "your_ip": clientIP(r),
+		"panel_port": a.PanelPort, "panel_ssh_key": sshKey, "panel_allow": a.entrySettings().PanelAllow, "your_ip": clientIP(r),
 		"mesh_only": a.entrySettings().PanelMeshOnly, "via_mesh": spec.MeshIP(clientIP(r)), "via_tunnel": viaTunnel(r), "mesh_url": a.meshURL(),
 		"cert_fingerprint": a.CertFingerprint(), "version": agent.Version, "xray_version": agent.XrayVersion,
 	})

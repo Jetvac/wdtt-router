@@ -182,13 +182,16 @@ func (a *App) agentCall(ctx context.Context, n Node, input []byte, progress func
 		}
 		return out.Bytes(), nil
 	}
-	var lastErr error
+	var lastErr, meshErr error
 	for i, t := range a.targets(n) {
 		cctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 		_, err := a.SSH.Probe(cctx, t)
 		cancel()
 		if err != nil {
 			lastErr = err
+			if i == 0 && n.MeshIP != "" {
+				meshErr = err
+			}
 			if i == 0 && n.MeshIP != "" && progress != nil {
 				progress(fmt.Sprintf("Mesh-адрес %s недоступен, пробую публичный адрес", n.MeshIP))
 			}
@@ -202,6 +205,10 @@ func (a *App) agentCall(ctx context.Context, n Node, input []byte, progress func
 			}
 		}
 		return out, err
+	}
+	// With public SSH closed, the Mesh failure is the one that matters.
+	if meshErr != nil && !n.SSHPublic {
+		return nil, fmt.Errorf("сервер %s недоступен через Mesh (%s): %v", n.Name, n.MeshIP, meshErr)
 	}
 	return nil, fmt.Errorf("сервер %s недоступен по SSH: %v", n.Name, lastErr)
 }

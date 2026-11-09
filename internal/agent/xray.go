@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
 )
@@ -225,7 +228,52 @@ func reconcileXray(ctx context.Context, s *spec.NodeSpec, changed *[]string) err
 		}
 		*changed = append(*changed, "xray: configuration applied")
 	}
-	return waitActive(ctx, xrayUnit)
+	if err := waitActive(ctx, xrayUnit); err != nil {
+		return err
+	}
+	return waitXrayListening(ctx, s, MeshAddress())
+}
+
+// waitXrayListening checks that Xray really accepts connections: systemd
+// reports a crash-looping Type=simple unit as active for a moment, and a
+// port Xray could not bind (-test does not bind) only shows up here.
+func waitXrayListening(ctx context.Context, s *spec.NodeSpec, meshIP string) error {
+	var addr string
+	switch {
+	case s.Role == spec.RoleEntry && s.Entry != nil:
+		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Entry.SocksPort))
+	case s.Hop != nil && meshIP != "":
+		addr = net.JoinHostPort(meshIP, strconv.Itoa(s.Hop.Port))
+	default:
+		return nil
+	}
+	var err error
+	for i := 0; i < 15; i++ {
+		var c net.Conn
+		if c, err = net.DialTimeout("tcp", addr, 2*time.Second); err == nil {
+			c.Close()
+			return nil
+		}
+		if err := sleep(ctx, 1); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("Xray не принимает соединения на %s (%v). %s", addr, err, xrayDiagnosis(ctx, addr))
+}
+
+// xrayDiagnosis explains why Xray is not listening: who holds the port and
+// what Xray itself last said.
+func xrayDiagnosis(ctx context.Context, addr string) string {
+	_, port, _ := net.SplitHostPort(addr)
+	var b strings.Builder
+	if out, _ := output(ctx, "ss", "-Htlnp", "sport = :"+port); strings.TrimSpace(out) != "" {
+		b.WriteString("Порт занят: " + tail(strings.TrimSpace(out), 300) + ". ")
+	}
+	b.WriteString("Состояние службы: " + unitState(xrayUnit) + ". ")
+	if out, _ := output(ctx, "journalctl", "-u", xrayUnit, "-n", "10", "--no-pager", "-o", "cat"); strings.TrimSpace(out) != "" {
+		b.WriteString("Журнал Xray: " + tail(strings.TrimSpace(out), 700))
+	}
+	return b.String()
 }
 
 func waitActive(ctx context.Context, unit string) error {

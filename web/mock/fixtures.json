@@ -517,6 +517,13 @@
     "name": "wdttr-exit-de-tdsb",
     "owned": true,
     "status": "healthy"
+   },
+   {
+    "created_at": "2026-11-05T10:00:00Z",
+    "id": "0d1e2f30-1111-4222-8333-944455556666",
+    "name": "wdttr-old-server-ab12",
+    "owned": false,
+    "status": "down"
    }
   ],
   "team": "example-team"
@@ -1037,7 +1044,8 @@
   "panel_port": 8443,
   "version": "1.0.0-rc1",
   "xray_version": "26.10.31",
-  "your_ip": "192.0.2.55"
+  "your_ip": "192.0.2.55",
+  "panel_ssh_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample wdtt-router-panel"
  },
  "/api/nodes/1/plan": {
   "version": 1,

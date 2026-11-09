@@ -98,34 +98,55 @@ func (s SSH) connect(ctx context.Context, t Target, auth []ssh.AuthMethod) (*ssh
 	return ssh.NewClient(c, channels, requests), found, nil
 }
 
-// Bootstrap authorises the panel key with a one-time root password. The
-// password is used for this single connection and never stored.
-func (s SSH) Bootstrap(ctx context.Context, t Target, password string) (string, error) {
-	if password == "" {
-		return "", errors.New("SSH password required")
-	}
+// ErrKeyNotAuthorized means the server does not accept the panel key and no
+// password was given.
+var ErrKeyNotAuthorized = errors.New("the server does not accept the panel key")
+
+// Bootstrap makes sure the panel key opens the server. If the key is already
+// authorised (servers with password login disabled), no password is needed;
+// otherwise the one-time root password adds it. The password is used for
+// this single connection and never stored. It reports the host key
+// fingerprint and whether the password was used.
+func (s SSH) Bootstrap(ctx context.Context, t Target, password string) (string, bool, error) {
 	pub, err := EnsureKey(s.KeyPath)
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	if signer, err := s.signer(); err == nil {
+		if client, fp, err := s.connect(ctx, t, []ssh.AuthMethod{ssh.PublicKeys(signer)}); err == nil {
+			client.Close()
+			return fp, false, nil
+		} else if !isAuthError(err) {
+			return "", false, err
+		}
+	}
+	if password == "" {
+		return "", false, ErrKeyNotAuthorized
 	}
 	client, fp, err := s.connect(ctx, t, []ssh.AuthMethod{ssh.Password(password)})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer client.Close()
 	if strings.ContainsAny(pub, "'\n\r") {
-		return "", errors.New("invalid generated public key")
+		return "", false, errors.New("invalid generated public key")
 	}
 	cmd := fmt.Sprintf("umask 077; mkdir -p /root/.ssh; touch /root/.ssh/authorized_keys; grep -qxF '%s' /root/.ssh/authorized_keys || printf '%%s\\n' '%s' >> /root/.ssh/authorized_keys; chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys", pub, pub)
 	session, err := client.NewSession()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer session.Close()
 	if out, err := session.CombinedOutput(cmd); err != nil {
-		return "", fmt.Errorf("SSH bootstrap: %w: %s", err, string(out))
+		return "", false, fmt.Errorf("SSH bootstrap: %w: %s", err, string(out))
 	}
-	return fp, nil
+	return fp, true, nil
+}
+
+// isAuthError reports an SSH handshake that failed on authentication (as
+// opposed to network or host key problems).
+func isAuthError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "unable to authenticate")
 }
 
 // Run executes command with input on stdin. Stdout is returned; every

@@ -51,6 +51,17 @@ export default function Servers() {
     }
   }
 
+  const confirmLeave = (n: NodeView) =>
+    modal.confirm({
+      title: `Отключить «${n.name}» от Mesh?`,
+      content: n.local
+        ? 'Сервер выйдет из Mesh, и его Mesh-узел будет удалён в Cloudflare.'
+        : 'Сервер выйдет из Mesh, и его Mesh-узел будет удалён в Cloudflare. Панель будет подключаться к нему по публичному адресу — если SSH сервера был закрыт для Интернета, панель сначала откроет его.',
+      okText: 'Отключить',
+      cancelText: 'Отмена',
+      onOk: () => action(n, 'leave'),
+    })
+
   const confirmRemove = (n: NodeView) =>
     modal.confirm({
       title: `Удалить сервер «${n.name}»?`,
@@ -128,7 +139,7 @@ export default function Servers() {
                     items: [
                       { key: 'apply', icon: <SendOutlined />, label: 'Применить настройки', onClick: () => action(n, 'apply') },
                       n.cf_node_id
-                        ? { key: 'leave', icon: <DisconnectOutlined />, label: 'Отключить от Mesh', disabled: n.in_chain, onClick: () => action(n, 'leave') }
+                        ? { key: 'leave', icon: <DisconnectOutlined />, label: 'Отключить от Mesh', disabled: n.in_chain, onClick: () => confirmLeave(n) }
                         : { key: 'enroll', icon: <CloudSyncOutlined />, label: 'Подключить к Mesh', onClick: () => action(n, 'enroll') },
                       { type: 'divider' },
                       { key: 'remove', icon: <DeleteOutlined />, danger: true, label: 'Удалить', disabled: n.local || n.in_chain, onClick: () => confirmRemove(n) },
@@ -151,7 +162,12 @@ export default function Servers() {
 function AddServer({ open, onClose, onQueued }: { open: boolean; onClose: () => void; onQueued: (id: number) => void }) {
   const [form] = Form.useForm()
   const [busy, setBusy] = useState(false)
+  const [sshKey, setSSHKey] = useState('')
   const { message } = App.useApp()
+  useEffect(() => {
+    if (open) get<{ panel_ssh_key?: string }>('/api/settings').then((s) => setSSHKey(s.panel_ssh_key || '')).catch(() => {})
+  }, [open])
+  const keyCommand = sshKey ? `mkdir -p ~/.ssh && echo '${sshKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys` : ''
   const submit = async () => {
     const v = await form.validateFields()
     setBusy(true)
@@ -172,8 +188,8 @@ function AddServer({ open, onClose, onQueued }: { open: boolean; onClose: () => 
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        title="Пароль root нужен один раз"
-        description="Панель подключится по паролю, добавит свой SSH-ключ и установит агент. Пароль не сохраняется. После подключения к Mesh публичный SSH сервера будет закрыт — управление пойдёт через Mesh."
+        title="Пароль root нужен один раз (или ключ панели на сервере)"
+        description="Панель подключится по своему ключу или по паролю, добавит свой SSH-ключ и установит агент. Пароль не сохраняется. После подключения к Mesh публичный SSH сервера будет закрыт — управление пойдёт через Mesh."
       />
       <Form form={form} layout="vertical" initialValues={{ port: 22 }} requiredMark="optional">
         <Form.Item name="name" label="Название" rules={[{ required: true, message: 'Укажите название' }, { pattern: /^[\p{L}\p{N} ._-]{1,40}$/u, message: 'До 40 букв, цифр, пробелов, точек и дефисов' }]}>
@@ -187,9 +203,18 @@ function AddServer({ open, onClose, onQueued }: { open: boolean; onClose: () => 
             <InputNumber min={1} max={65535} style={{ width: '100%' }} />
           </Form.Item>
         </Space.Compact>
-        <Form.Item name="password" label="Пароль root" rules={[{ required: true, message: 'Введите пароль' }]}>
+        <Form.Item
+          name="password"
+          label="Пароль root"
+          extra="Не нужен, если на сервере уже есть ключ панели (например, вход по паролю отключён). Чтобы добавить ключ, выполните на сервере под root команду ниже."
+        >
           <Input.Password autoComplete="off" />
         </Form.Item>
+        {keyCommand && (
+          <Typography.Paragraph copyable={{ text: keyCommand }} className="mono" style={{ fontSize: 12, wordBreak: 'break-all' }} type="secondary">
+            {keyCommand}
+          </Typography.Paragraph>
+        )}
       </Form>
     </Modal>
   )

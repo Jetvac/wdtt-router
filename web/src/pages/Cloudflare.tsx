@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, App, Button, Card, Col, Form, Input, Row, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { RowItem, Rows } from '../components/Rows'
 import { CheckCircleFilled, CloseCircleFilled, ReloadOutlined } from '@ant-design/icons'
-import { get, post, put } from '../api'
+import { del, get, post, put } from '../api'
 import type { Check } from '../types'
 import { fmtTime, usePoll } from '../util'
 
@@ -31,6 +31,24 @@ export default function Cloudflare() {
   useEffect(() => {
     if (data) form.setFieldsValue({ account_id: data.account_id, team: data.team })
   }, [data, form])
+
+  const removeStale = (c: NonNullable<CF['connectors']>[number]) =>
+    modal.confirm({
+      title: `Удалить Mesh-узел ${c.name}?`,
+      content: 'Панель его не использует, и сейчас он не подключён — обычно это остаток от переустановленного сервера. Устройство с этим узлом больше не сможет подключиться к Mesh.',
+      okText: 'Удалить',
+      okButtonProps: { danger: true },
+      cancelText: 'Отмена',
+      onOk: async () => {
+        try {
+          await del(`/api/cloudflare/connectors/${c.id}`)
+          message.success('Узел удалён')
+          reload()
+        } catch (e: any) {
+          message.error(e.message)
+        }
+      },
+    })
 
   const preflight = async () => {
     setChecking(true)
@@ -151,6 +169,17 @@ export default function Cloudflare() {
                 { title: 'Статус', dataIndex: 'status', render: (s: string) => <Tag color={s === 'healthy' ? 'success' : s === 'inactive' ? 'default' : 'warning'}>{s}</Tag> },
                 { title: 'Владелец', dataIndex: 'owned', render: (o: boolean) => (o ? <Tag color="blue">панель</Tag> : <Tag>сторонний</Tag>) },
                 { title: 'Создан', dataIndex: 'created_at', render: (t: string) => fmtTime(t) },
+                {
+                  title: '',
+                  key: 'actions',
+                  align: 'right',
+                  render: (_: unknown, c: NonNullable<CF['connectors']>[number]) =>
+                    !c.owned && c.status !== 'healthy' && c.status !== 'degraded' ? (
+                      <Button size="small" danger onClick={() => removeStale(c)}>
+                        Удалить
+                      </Button>
+                    ) : null,
+                },
               ]}
             />
           </Card>

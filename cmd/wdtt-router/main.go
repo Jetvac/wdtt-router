@@ -327,6 +327,10 @@ func agentMain(ctx context.Context, args []string) error {
 	// readable as on any other server; secrets are written with explicit
 	// 0600 modes regardless.
 	syscall.Umask(0o022)
+	// The panel drives the agent over SSH. When a step cuts that very
+	// connection (leaving Mesh, removal), the agent must still finish: a
+	// lost terminal or a closed output pipe must not kill it halfway.
+	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)
 	switch args[0] {
 	case "version":
 		fmt.Println(agent.Version)

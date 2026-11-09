@@ -50,12 +50,19 @@ func (a *App) jobAddNode(ctx context.Context, j *jobRun) error {
 		return err
 	}
 	t := sshx.Target{Host: in.Host, Port: in.Port, User: "root"}
-	j.Log("Подключение к %s:%d по паролю (однократно, пароль не сохраняется)", in.Host, in.Port)
-	fp, err := a.SSH.Bootstrap(ctx, t, in.Password)
+	j.Log("Подключение к %s:%d", in.Host, in.Port)
+	fp, usedPassword, err := a.SSH.Bootstrap(ctx, t, in.Password)
+	if errors.Is(err, sshx.ErrKeyNotAuthorized) {
+		return errors.New("сервер не принимает ключ панели: введите пароль root или добавьте на сервер ключ панели (команда — в окне «Добавить сервер»)")
+	}
 	if err != nil {
 		return fmt.Errorf("SSH: %w", err)
 	}
-	j.Log("Ключ панели добавлен. Отпечаток сервера: %s", fp)
+	if usedPassword {
+		j.Log("Ключ панели добавлен по паролю (пароль не сохраняется). Отпечаток сервера: %s", fp)
+	} else {
+		j.Log("Ключ панели уже есть на сервере, пароль не нужен. Отпечаток сервера: %s", fp)
+	}
 	res, err := a.Store.DB.Exec(`INSERT INTO nodes(name,host,ssh_port,fingerprint,ssh_public,firewall,created_at) VALUES(?,?,?,?,0,1,?)`, in.Name, in.Host, in.Port, fp, now())
 	if err != nil {
 		return fmt.Errorf("сервер с таким именем уже есть: %w", err)
@@ -109,8 +116,20 @@ func (a *App) jobEnroll(ctx context.Context, j *jobRun) error {
 	if err != nil {
 		return err
 	}
+	// Public SSH that "leave" opened is closed again once Mesh works (the
+	// Mesh-pending check keeps it open until then).
+	if !n.Local && n.SSHPublic && a.Store.Setting(sshOpenedKey(n.ID), "") != "" {
+		n.SSHPublic = false
+		if err := a.saveNode(n); err != nil {
+			return err
+		}
+		j.Log("Публичный SSH %s закроется, когда заработает Mesh (его открывала панель при отключении от Mesh)", n.Name)
+	}
+	_ = a.Store.SetSetting(sshOpenedKey(n.ID), "")
 	return a.enroll(ctx, j, n)
 }
+
+func sshOpenedKey(id int64) string { return fmt.Sprintf("node:%d:ssh_opened_by_leave", id) }
 
 // enroll creates the Mesh node in Cloudflare and connects the server. It is
 // idempotent: an already enrolled server is simply re-applied.
@@ -181,7 +200,7 @@ func (a *App) enroll(ctx context.Context, j *jobRun, n Node) error {
 	if n.MeshIP == "" {
 		return errors.New("сервер подключился, но Mesh-адрес не получен")
 	}
-	j.Log("Mesh-адрес сервера: %s", n.MeshIP)
+	j.Log("%s подключён к Mesh, адрес %s", n.Name, n.MeshIP)
 	return nil
 }
 
@@ -207,12 +226,17 @@ func (a *App) jobLeave(ctx context.Context, j *jobRun) error {
 	if a.inChain(n.ID) {
 		return errors.New("сначала уберите сервер из цепочки")
 	}
-	if !n.Local && !n.SSHPublic && n.Firewall {
-		return errors.New("SSH этого сервера доступен только через Mesh. Сначала разрешите публичный SSH, иначе доступ будет потерян")
+	if n, err = a.openPublicSSH(ctx, j, n); err != nil {
+		return err
 	}
 	cf, _ := a.cfClient()
 	old := n
 	n.CFNodeID, n.CFNodeName = "", ""
+	if !n.Local {
+		// Leaving drops the Mesh link: talk to the server at its public
+		// address, or the session breaks halfway through.
+		n.MeshIP = ""
+	}
 	if err := a.saveNode(n); err != nil {
 		return err
 	}
@@ -223,6 +247,40 @@ func (a *App) jobLeave(ctx context.Context, j *jobRun) error {
 	old.MeshIP = ""
 	a.forgetMesh(ctx, cf, old)
 	return nil
+}
+
+// openPublicSSH prepares a server for leaving Mesh: without Mesh the panel
+// reaches it only at its public address, so public SSH is opened first
+// (while Mesh still works) and checked before Mesh goes away.
+func (a *App) openPublicSSH(ctx context.Context, j *jobRun, n Node) (Node, error) {
+	if n.Local || n.MeshIP == "" {
+		return n, nil
+	}
+	public := sshx.Target{Host: n.Host, Port: n.SSHPort, User: "root", Fingerprint: n.Fingerprint}
+	probe := func(d time.Duration) error {
+		pctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		_, err := a.SSH.Probe(pctx, public)
+		return err
+	}
+	if probe(8*time.Second) == nil {
+		return n, nil
+	}
+	j.Log("Открываю публичный SSH %s: без Mesh панель будет подключаться к нему по публичному адресу", n.Name)
+	if !n.SSHPublic {
+		n.SSHPublic = true
+		if err := a.saveNode(n); err != nil {
+			return n, err
+		}
+		_ = a.Store.SetSetting(sshOpenedKey(n.ID), "1")
+	}
+	if err := a.applyPlanned(ctx, j, n.ID); err != nil {
+		return n, err
+	}
+	if err := probe(15 * time.Second); err != nil {
+		return n, fmt.Errorf("публичный SSH %s не отвечает (%v) — сервер остаётся в Mesh, чтобы не потерять доступ", n.Name, err)
+	}
+	return a.node(n.ID)
 }
 
 func (a *App) jobRemove(ctx context.Context, j *jobRun) error {
@@ -238,6 +296,14 @@ func (a *App) jobRemove(ctx context.Context, j *jobRun) error {
 	}
 	var in removeInput
 	_ = a.jobInput(j.id, &in)
+	if on, err := a.openPublicSSH(ctx, j, n); err == nil {
+		// Removal takes the server out of Mesh: talk to it at its public
+		// address, or the session breaks halfway through.
+		n = on
+		n.MeshIP = ""
+	} else if !in.Force {
+		return fmt.Errorf("%w (можно удалить принудительно — тогда сервер нужно очистить вручную)", err)
+	}
 	j.Log("Удаляю компоненты с %s", n.Name)
 	if _, err := a.agentCall(ctx, n, nil, j.progress, "uninstall", "--purge"); err != nil {
 		if !in.Force {

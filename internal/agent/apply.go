@@ -173,7 +173,9 @@ func Uninstall(ctx context.Context, purge bool) ([]string, error) {
 	}
 	removeIfExists(specPath, fwPath, fwPendingPath, fwPrevPath, xrayConfig, EtcDir+"/wdtt-tproxy.nft", sysctlPath)
 	if purge {
-		removeIfExists(EtcDir)
+		// The running binary can be unlinked on Linux; nothing of the panel
+		// stays on the server.
+		removeIfExists(EtcDir, LibDir, SelfPath)
 	}
 	return changed, nil
 }

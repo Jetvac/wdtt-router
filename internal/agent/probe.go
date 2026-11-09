@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
@@ -103,6 +104,10 @@ func Probe(ctx context.Context) spec.ProbeResult {
 	raw, _, err := socksDial(ctx, s.Entry, 1, "one.one.one.one", 443)
 	if err != nil {
 		r.Error = "TCP through chain: " + err.Error()
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Entry.SocksPort))
+			r.Error += ". " + xrayDiagnosis(ctx, addr)
+		}
 		return r
 	}
 	c := tls.Client(raw, &tls.Config{ServerName: "one.one.one.one", MinVersion: tls.VersionTLS12})
