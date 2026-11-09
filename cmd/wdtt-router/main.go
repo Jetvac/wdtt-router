@@ -321,6 +321,12 @@ func agentMain(ctx context.Context, args []string) error {
 	if os.Geteuid() != 0 && args[0] != "version" {
 		return fmt.Errorf("the agent must run as root")
 	}
+	// On the panel server the agent is a child of the panel service
+	// (UMask=0077); elsewhere it runs over SSH with 022. Files the agent
+	// installs for other programs (apt keyrings, package files) must be
+	// readable as on any other server; secrets are written with explicit
+	// 0600 modes regardless.
+	syscall.Umask(0o022)
 	switch args[0] {
 	case "version":
 		fmt.Println(agent.Version)

@@ -44,6 +44,11 @@ func installWarp(ctx context.Context) error {
 	if _, err := runStdin(ctx, string(key), "gpg", "--yes", "--dearmor", "-o", warpKeyring); err != nil {
 		return err
 	}
+	// apt checks signatures as the unprivileged _apt user: the keyring must
+	// be world-readable whatever umask the agent runs with.
+	if err := os.Chmod(warpKeyring, 0644); err != nil {
+		return err
+	}
 	codename := osRelease()["VERSION_CODENAME"]
 	if codename == "" {
 		return errors.New("cannot determine distribution codename")
@@ -54,6 +59,10 @@ func installWarp(ctx context.Context) error {
 	}
 	aptUpdated = false
 	if err := aptInstall(ctx, "cloudflare-warp"); err != nil {
+		// A repository apt cannot use would break every later apt-get
+		// update on this server (security updates included).
+		removeIfExists(warpList)
+		aptUpdated = false
 		return err
 	}
 	return systemctl(ctx, "enable", "--now", "warp-svc.service")
