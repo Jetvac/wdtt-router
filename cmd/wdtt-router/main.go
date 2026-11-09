@@ -39,6 +39,7 @@ Panel:
   wdtt-router serve [--listen :8443]                  run the web panel
   wdtt-router reset-password                          set a new admin password
   wdtt-router fingerprint                             print the panel certificate fingerprint
+  wdtt-router desktop-login [--device NAME]           panel session for the Windows app (JSON)
 
 Agent (run by the panel on every server):
   wdtt-router agent status|apply|confirm|probe|boot|uninstall [--purge]|version
@@ -79,6 +80,20 @@ func main() {
 		err = initPanel(os.Args[2:])
 	case "reset-password":
 		err = resetPassword(os.Args[2:])
+	case "desktop-login":
+		// Run over SSH by the Windows app: a panel session as JSON.
+		fl := flag.NewFlagSet("desktop-login", flag.ExitOnError)
+		device := fl.String("device", "", "computer name, for the audit log")
+		_ = fl.Parse(os.Args[2:])
+		a, e := openApp(defaultData, 8443, "")
+		if e != nil {
+			err = e
+			break
+		}
+		var s controller.DesktopSession
+		if s, err = a.DesktopLogin(*device); err == nil {
+			err = json.NewEncoder(os.Stdout).Encode(s)
+		}
 	case "fingerprint":
 		a, e := openApp(defaultData, 8443, "")
 		if e != nil {

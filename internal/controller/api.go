@@ -61,6 +61,7 @@ func (a *App) routes() http.Handler {
 	m.HandleFunc("GET /api/jobs/{id}", a.authed(a.getJob))
 	m.HandleFunc("GET /api/audit", a.authed(a.listAudit))
 	m.HandleFunc("GET /api/events", a.authed(a.listEvents))
+	m.HandleFunc("GET /api/summary", a.authed(a.getSummary))
 	m.HandleFunc("GET /api/metrics", a.authed(a.getMetrics))
 	m.HandleFunc("POST /api/diagnostics", a.authed(a.postDiagnostics))
 	m.HandleFunc("POST /api/backup", a.authed(a.postBackup))
@@ -317,6 +318,12 @@ func (a *App) patchNode(w http.ResponseWriter, r *http.Request, s auth.Session) 
 	if body.SSHPublic != nil {
 		if !*body.SSHPublic && n.CFNodeID == "" {
 			apiError(w, 400, "закрыть публичный SSH можно только после подключения сервера к Mesh")
+			return
+		}
+		// The Windows app reaches the panel server over SSH; it says which
+		// address it uses (only it can send requests from loopback).
+		if !*body.SSHPublic && n.Local && viaTunnel(r) && !spec.MeshIP(r.Header.Get("X-WDTT-App-Host")) {
+			apiError(w, 400, "приложение для Windows подключается к этому серверу по публичному SSH — если закрыть его, приложение потеряет доступ. Закрыть можно из сессии через Mesh")
 			return
 		}
 		n.SSHPublic = *body.SSHPublic
@@ -875,7 +882,7 @@ func (a *App) cfFix(w http.ResponseWriter, r *http.Request, s auth.Session) {
 func (a *App) getSettings(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	writeJSON(w, 200, map[string]any{
 		"panel_port": a.PanelPort, "panel_allow": a.entrySettings().PanelAllow, "your_ip": clientIP(r),
-		"mesh_only": a.entrySettings().PanelMeshOnly, "via_mesh": spec.MeshIP(clientIP(r)), "mesh_url": a.meshURL(),
+		"mesh_only": a.entrySettings().PanelMeshOnly, "via_mesh": spec.MeshIP(clientIP(r)), "via_tunnel": viaTunnel(r), "mesh_url": a.meshURL(),
 		"cert_fingerprint": a.CertFingerprint(), "version": agent.Version, "xray_version": agent.XrayVersion,
 	})
 }
@@ -888,13 +895,15 @@ func (a *App) putPanel(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.MeshOnly && !spec.MeshIP(clientIP(r)) {
+	// Through Mesh or the SSH tunnel (the Windows app) access survives the
+	// switch; from the public address it would not.
+	if body.MeshOnly && !spec.MeshIP(clientIP(r)) && !viaTunnel(r) {
 		u := a.meshURL()
 		if u == "" {
-			apiError(w, 400, "сервер панели ещё не в Mesh")
+			apiError(w, 400, "откройте панель в приложении для Windows (оно подключается через SSH) и включите режим оттуда — иначе вы потеряете доступ")
 			return
 		}
-		apiError(w, 400, "откройте панель через Mesh ("+u+") с устройства, подключённого к Cloudflare WARP вашей команды, и включите режим оттуда — иначе вы потеряете доступ")
+		apiError(w, 400, "откройте панель в приложении для Windows или через Mesh ("+u+") и включите режим оттуда — иначе вы потеряете доступ")
 		return
 	}
 	_ = a.Store.SetSetting("panel_mesh_only", map[bool]string{true: "1", false: "0"}[body.MeshOnly])
@@ -909,7 +918,7 @@ func (a *App) putPanel(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		}
 		clean = append(clean, c)
 	}
-	if len(clean) > 0 && !body.MeshOnly && !allowedBy(clientIP(r), clean) {
+	if len(clean) > 0 && !body.MeshOnly && !viaTunnel(r) && !allowedBy(clientIP(r), clean) {
 		apiError(w, 400, "ваш адрес "+clientIP(r)+" не входит в список — панель станет недоступна для вас")
 		return
 	}

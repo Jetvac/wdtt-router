@@ -15,3 +15,10 @@ web/dist/*
 web/node_modules/
 .claude/
 *.tsbuildinfo
+
+# Built launcher of the Windows app (CI builds it)
+web/launcher/dist/*
+!web/launcher/dist/.gitkeep
+
+# Windows resources of the app (the release build generates them)
+cmd/wdtt-desktop/*.syso

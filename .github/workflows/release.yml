@@ -34,8 +34,14 @@ jobs:
             tar -C out -czf out/wdtt-router-linux-$arch.tar.gz wdtt-router
             rm out/wdtt-router
           done
+          # The Windows app (no cgo: WebView2 is loaded at run time), with its
+          # icon and version information.
+          go run ./cmd/wdtt-desktop/winres -version "${GITHUB_REF_NAME}"
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=${GITHUB_REF_NAME}" -o out/wdtt-router-windows-$arch.exe ./cmd/wdtt-desktop
+          done
           cp install.sh out/
-          (cd out && sha256sum wdtt-router-linux-*.tar.gz install.sh > SHA256SUMS)
+          (cd out && sha256sum wdtt-router-linux-*.tar.gz wdtt-router-windows-*.exe install.sh > SHA256SUMS)
       - name: Sign
         env:
           SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY || secrets.MAIN }}
@@ -55,6 +61,8 @@ jobs:
           files: |
             out/wdtt-router-linux-amd64.tar.gz
             out/wdtt-router-linux-arm64.tar.gz
+            out/wdtt-router-windows-amd64.exe
+            out/wdtt-router-windows-arm64.exe
             out/install.sh
             out/SHA256SUMS
             out/SHA256SUMS.sig

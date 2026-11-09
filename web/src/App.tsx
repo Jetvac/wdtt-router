@@ -8,6 +8,7 @@ import {
   DashboardOutlined,
   LockOutlined,
   LogoutOutlined,
+  SwapOutlined,
   MobileOutlined,
   MoonOutlined,
   SunOutlined,
@@ -19,7 +20,7 @@ import {
   UserOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
-import { ApiError, get, post, setCsrf, setUnauthorizedHandler } from './api'
+import { ApiError, get, isDesktop, post, setCsrf, setUnauthorizedHandler } from './api'
 import { JobsProvider, useJobs } from './components/Jobs'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
@@ -253,7 +254,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 items: [
                   { key: 'settings', icon: <SettingOutlined />, label: 'Настройки и пароль', onClick: () => navigate('/settings') },
                   { type: 'divider' },
-                  { key: 'logout', icon: <LogoutOutlined />, label: 'Выйти', onClick: logout },
+                  isDesktop()
+                    ? { key: 'servers', icon: <SwapOutlined />, label: 'Серверы приложения', onClick: () => window.location.assign('/_app/') }
+                    : { key: 'logout', icon: <LogoutOutlined />, label: 'Выйти', onClick: logout },
                 ],
               }}
             >

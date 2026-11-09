@@ -28,4 +28,6 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: CGO_ENABLED=0 go build -o /tmp/wdtt-router ./cmd/wdtt-router
+      - run: GOOS=windows go vet ./cmd/wdtt-desktop ./internal/desktop
+      - run: GOOS=windows CGO_ENABLED=0 go build -o /tmp/wdtt-router-app.exe ./cmd/wdtt-desktop
       - run: bash -n install.sh

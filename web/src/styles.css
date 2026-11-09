@@ -242,3 +242,17 @@ body {
 [data-theme='dark'] .chain-arrow .line::after {
   border-left-color: #15417e;
 }
+
+/* Windows app: operation log */
+.op-log {
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #141414;
+  color: #d9d9d9;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

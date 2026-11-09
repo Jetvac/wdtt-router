@@ -173,8 +173,10 @@ case "$MODE" in
     fi
     [[ -n $PUBLIC_HOST ]] || PUBLIC_HOST=$(guess_ip)
     [[ -n $PUBLIC_HOST ]] || die "укажите --public-host"
-    . /etc/os-release
-    [[ ${ID:-} == ubuntu || ${ID:-} == debian || ${ID_LIKE:-} == *debian* ]] || die "поддерживаются Debian и Ubuntu"
+    # Read in a subshell: os-release defines VERSION, NAME and others that
+    # would overwrite the installer's own variables.
+    os_ids=" $( . /etc/os-release && echo "${ID:-} ${ID_LIKE:-}" ) "
+    [[ $os_ids == *" debian "* || $os_ids == *" ubuntu "* ]] || die "поддерживаются Debian и Ubuntu"
     fetch
     install -m 0755 "$tmp/wdtt-router" "$BIN"
     out=$("$BIN" init --public-host "$PUBLIC_HOST" --port "$PORT")

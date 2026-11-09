@@ -14,6 +14,10 @@ export class ApiError extends Error {
   }
 }
 
+// The Windows app marks the panel's answers it relays through its SSH tunnel.
+let desktop = false
+export const isDesktop = () => desktop
+
 let onUnauthorized: () => void = () => {}
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn
@@ -29,6 +33,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   } catch {
     throw new ApiError(0, 'Панель недоступна. Проверьте соединение.')
   }
+  if (res.headers.get('X-WDTT-Desktop')) desktop = true
   const text = await res.text()
   let data: any = null
   try {

@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,8 @@ func (a *App) Serve(ctx context.Context, listen string) error {
 	if err != nil {
 		return err
 	}
+	// The Windows app reads the port from here to open its SSH tunnel.
+	_ = a.Store.SetSetting("panel_port", strconv.Itoa(a.PanelPort))
 	go a.worker(ctx)
 	go a.refresher(ctx)
 	go a.updateChecker(ctx)
