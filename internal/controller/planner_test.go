@@ -98,3 +98,28 @@ func TestPlanRejectsUnenrolledHop(t *testing.T) {
 		t.Fatal("a server outside Mesh cannot be part of the chain")
 	}
 }
+
+// A server that has just joined Mesh keeps public SSH until the panel has
+// reached it through Mesh; then it closes.
+func TestMeshPendingKeepsPublicSSH(t *testing.T) {
+	a := testApp(t)
+	id := addNode(t, a, "exit", "100.96.0.9", 40001)
+	sshPublic := func() bool {
+		plans, err := a.Plan()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plans[id].Firewall.SSHPublic
+	}
+	if sshPublic() {
+		t.Fatal("enrolled server keeps public SSH without a pending Mesh check")
+	}
+	a.setMeshPending(id, true)
+	if !sshPublic() || !a.meshPending(id) {
+		t.Fatal("public SSH closed before the panel reached the server via Mesh")
+	}
+	a.setMeshPending(id, false)
+	if sshPublic() {
+		t.Fatal("public SSH still open after the Mesh check passed")
+	}
+}

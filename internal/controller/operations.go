@@ -128,6 +128,16 @@ func (a *App) enroll(ctx context.Context, j *jobRun, n Node) error {
 			return fmt.Errorf("Cloudflare не готов: %s — %s", c.Title, c.Detail)
 		}
 	}
+	// The panel reaches other servers through Mesh, so the panel server
+	// has to be in Mesh first.
+	if !n.Local {
+		if l, err := a.localNode(); err == nil && l.CFNodeID == "" {
+			j.Log("Сначала подключаю к Mesh сервер панели (%s)", l.Name)
+			if err := a.enroll(ctx, j, l); err != nil {
+				return fmt.Errorf("сервер панели не подключился к Mesh: %w", err)
+			}
+		}
+	}
 	created := false
 	if n.CFNodeID == "" {
 		name := "wdttr-" + strings.Trim(reSlug.ReplaceAllString(strings.ToLower(n.Name), "-"), "-") + "-" + strings.ToLower(spec.NewPassword(4))
@@ -154,6 +164,10 @@ func (a *App) enroll(ctx context.Context, j *jobRun, n Node) error {
 		}
 		created = true
 	}
+	if !n.Local && n.MeshIP == "" {
+		// Keep public SSH until the panel has reached the server via Mesh.
+		a.setMeshPending(n.ID, true)
+	}
 	if err := a.applyPlanned(ctx, j, n.ID); err != nil {
 		if created {
 			j.Log("Откат: удаляю созданный Mesh-узел")
@@ -178,6 +192,7 @@ func (a *App) forgetMesh(ctx context.Context, cf *cfapi.Client, n Node) {
 		}
 	}
 	_ = a.Store.DeleteSecret(fmt.Sprintf("node:%d:mesh_token", n.ID))
+	a.setMeshPending(n.ID, false)
 	n.CFNodeID, n.CFNodeName, n.MeshIP = "", "", ""
 	_ = a.saveNode(n)
 }
@@ -299,6 +314,9 @@ func (a *App) applyNode(ctx context.Context, j *jobRun, n Node, s *spec.NodeSpec
 			return fmt.Errorf("%s: после изменения firewall панель не смогла подключиться заново (%v). Правила будут автоматически откатаны через 2 минуты", n.Name, err)
 		}
 		j.Log("%s: доступ подтверждён, правила firewall закреплены", n.Name)
+	}
+	if n, err := a.node(n.ID); err == nil {
+		a.finishMesh(ctx, j, n)
 	}
 	return nil
 }

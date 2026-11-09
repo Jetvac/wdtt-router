@@ -135,7 +135,7 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 			}
 			s.Mesh = spec.MeshSpec{Enabled: true, NodeName: n.CFNodeName, CFNodeID: n.CFNodeID, Token: tok}
 		}
-		s.Firewall = spec.FirewallSpec{Enabled: n.Firewall, SSHPort: n.SSHPort, SSHPublic: n.SSHPublic || n.Local || !s.Mesh.Enabled, SSHAllow: n.SSHAllow, AllowPing: n.AllowPing}
+		s.Firewall = spec.FirewallSpec{Enabled: n.Firewall, SSHPort: n.SSHPort, SSHPublic: n.SSHPublic || n.Local || !s.Mesh.Enabled || a.meshPending(n.ID), SSHAllow: n.SSHAllow, AllowPing: n.AllowPing}
 		s.Hardening = n.Hardening
 		i, inChain := pos[n.ID]
 		switch {
