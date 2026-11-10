@@ -1,0 +1,102 @@
+name: Android Build
+
+on:
+  push:
+    branches: [master, main-new]
+  pull_request:
+    branches: [master, main-new]
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      ANDROID_API_LEVEL: "28"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.27.1
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK + NDK
+        id: android
+        uses: actions/setup-android-sdk@v2
+        with:
+          android-sdk-cache: true
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+            ndk;25.2.9519653
+          ndk: 25.2.9519653
+          cmdline-tools: latest
+          accept-license: true
+
+      - name: Locate NDK
+        id: ndk
+        run: |
+          NDK="$ANDROID_HOME/ndk/25.2.9519653"
+          if [ -d "$NDK/toolchains/llvm/prebuilt" ]; then
+            echo "path=$NDK" >> "$GITHUB_ENV"
+          else
+            echo "ndk not found at $NDK" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - name: Build Go native libs (per ABI)
+        env:
+          ANDROID_NDK_HOME: "${{ env.NDK }}"
+          ANDROID_NATIVE_API_LEVEL: "${{ env.ANDROID_API_LEVEL }}"
+        run: |
+          set -euo pipefail
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+          ANDROID_NATIVE_API_LEVEL="$ANDROID_NATIVE_API_LEVEL" \
+          cd "$GITHUB_WORKSPACE/wdtt-client/proxy-turn-vk-android-main-new" \
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            echo "=== Building $abi ==="
+            scripts/build-go-lib.sh "$abi"
+          done
+          echo "=== jniLibs ==="
+          ls -la app/src/main/jniLibs/*
+
+      - name: Assemble APK
+        env:
+          ANDROID_NDK_HOME: "${{ env.NDK }}"
+        run: |
+          set -euo pipefail
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+          cd "$GITHUB_WORKSPACE/wdtt-client/proxy-turn-vk-android-main-new" \
+          ./gradlew assembleRelease --no-daemon \
+            -Dorg.gradle.jvmargs="-Xmx4G -Dfile.encoding=UTF-8 -XX:+UseParallelGC -XX:MaxMetaspaceSize=1024m"
+
+      - name: Copy APKs
+        run: |
+          set -euo pipefail
+          mkdir -p app/release
+          cp app/build/outputs/apk/release/*.apk app/release/
+          ls -la app/release/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnvk-android
+          path: app/release/*.apk
+          if-no-files-found: error
+          retention-days: 30

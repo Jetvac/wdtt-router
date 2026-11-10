@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Google Pixel / Material You Widget Styling - Dark Theme -->
+    <color name="widget_card_background">#1B1B1F</color>
+    <color name="widget_card_stroke">#47464F</color>
+    <color name="widget_text_title">#E4E1E6</color>
+    <color name="widget_text_status_active">#C4C0FF</color>
+    <color name="widget_text_status_inactive">#918F9A</color>
+
+    <color name="widget_button_bg_active">#C4C0FF</color>
+    <color name="widget_button_bg_inactive">#2C2B35</color>
+    <color name="widget_button_stroke_active">#E2DFFF</color>
+    <color name="widget_button_stroke_inactive">#47464F</color>
+    <color name="widget_button_tint_active">#2D2A5B</color>
+    <color name="widget_button_tint_inactive">#E4E1E6</color>
+</resources>

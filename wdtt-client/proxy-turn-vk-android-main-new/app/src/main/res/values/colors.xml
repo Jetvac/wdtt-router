@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#1E1E1E</color>
+
+    <!-- Google Pixel / Material You Widget Styling - Light Theme fallbacks -->
+    <color name="widget_card_background">#FAF8F4</color>
+    <color name="widget_card_stroke">#EFEBE9</color>
+    <color name="widget_text_title">#1C1B1A</color>
+    <color name="widget_text_status_active">#5B588D</color>
+    <color name="widget_text_status_inactive">#8D6E63</color>
+
+    <color name="widget_button_bg_active">#5B588D</color>
+    <color name="widget_button_bg_inactive">#E4E1EC</color>
+    <color name="widget_button_stroke_active">#E2DFFF</color>
+    <color name="widget_button_stroke_inactive">#C8C5D0</color>
+    <color name="widget_button_tint_active">#FFFFFF</color>
+    <color name="widget_button_tint_inactive">#47464F</color>
+</resources>

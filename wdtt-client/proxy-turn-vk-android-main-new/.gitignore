@@ -1,0 +1,19 @@
+# Local SDK path (machine-specific).
+local.properties
+
+# Release signing keys must never be committed.
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Local Android/Gradle output.
+.gradle/
+**/build/
+app/release/
+
+# Native Go engine build outputs (libclient.so per ABI).
+app/src/main/jniLibs/
+
+# Go engine build cache.
+app/src/main/assets/android-client/build/

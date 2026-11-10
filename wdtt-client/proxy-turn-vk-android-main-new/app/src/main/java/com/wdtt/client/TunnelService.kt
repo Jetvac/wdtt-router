@@ -1,0 +1,423 @@
+package com.wdtt.client
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+private const val TUNNEL_NOTIFICATION_CHANNEL_ID = "wdtt_tunnel_v4"
+private const val TUNNEL_NOTIFICATION_ID = 1
+private const val CONNECTION_WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 1000L
+
+class TunnelService : Service() {
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var updateJob: Job? = null
+    private var lastNotificationText: String? = null
+    
+    
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastNetworkChangeTime = 0L
+    private val activeNetworks = mutableSetOf<Network>()
+    private var isTunnelPaused = false
+    private var hadActiveWorkers = false
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        setupNetworkCallback()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) {
+            restoreTunnel()
+            return START_STICKY
+        }
+
+        when (intent.action) {
+            "START" -> {
+                val notification = createNotification("Запуск...")
+                startPersistentForeground(notification)
+
+                val params = TunnelParams(
+                    peer = intent.getStringExtra("peer") ?: "",
+                    vkHashes = intent.getStringExtra("vk_hashes") ?: "",
+                    secondaryVkHash = intent.getStringExtra("secondary_vk_hash") ?: "",
+                    workersPerHash = intent.getIntExtra("workers_per_hash", 16),
+                    port = intent.getIntExtra("port", 9000),
+                    connectionPassword = intent.getStringExtra("connection_password") ?: "",
+                    vkAuthMode = sanitizeVkAuthMode(intent.getStringExtra("vk_auth_mode")),
+                    captchaMode = sanitizeCaptchaMode(intent.getStringExtra("captcha_mode")),
+                    captchaSolveMethod = intent.getStringExtra("captcha_solve_method") ?: "auto",
+                    fingerprint = intent.getStringExtra("fingerprint") ?: "firefox",
+                    clientIds = intent.getStringExtra("client_ids") ?: "8202606,6287487",
+                    obfsMode = intent.getStringExtra("obfs_mode")?.takeIf { it.isNotBlank() } ?: "audio",
+                    isFreeTurn = intent.getBooleanExtra("free_turn", false),
+                    obfKey = intent.getStringExtra("free_obf_key") ?: "",
+                    obfProfile = intent.getStringExtra("free_obf_profile") ?: "rtpopus3",
+                    freeClientId = intent.getStringExtra("free_client_id") ?: "",
+                    wireGuardConfig = intent.getStringExtra("wireguard_config") ?: ""
+                )
+                startTunnel(params)
+            }
+            "STOP" -> stopTunnel()
+        }
+        return START_STICKY
+    }
+
+    private fun restoreTunnel() {
+        val notification = createNotification("Восстановление соединения...")
+        startPersistentForeground(notification)
+        beginConnectionWakeWindow()
+        
+        val appContext = applicationContext
+        TunnelManager.scope.launch {
+            try {
+                val store = SettingsStore(appContext)
+                val profile = store.activeConnectionProfile()
+                val basePeer = profile?.peer ?: store.peer.first()
+                val manualPortsEnabled = store.manualPortsEnabled.first()
+                val serverDtlsPort = if (manualPortsEnabled) store.serverDtlsPort.first() else 56000
+                val peerWithPort = if (basePeer.isBlank() || basePeer.contains(":")) basePeer else "$basePeer:$serverDtlsPort"
+                val params = TunnelParams(
+                    peer = peerWithPort,
+                    vkHashes = profile?.vkLinks ?: store.vkHashes.first(),
+                    secondaryVkHash = store.secondaryVkHash.first(),
+                    workersPerHash = profile?.workers ?: store.workersPerHash.first(),
+                    port = profile?.localPort ?: store.listenPort.first(),
+                    connectionPassword = profile?.wrapAPassword ?: store.connectionPassword.first(),
+                    vkAuthMode = sanitizeVkAuthMode(store.vkAuthMode.first()),
+                    captchaMode = sanitizeCaptchaMode(store.captchaMode.first()),
+                    captchaSolveMethod = store.captchaSolveMethod.first(),
+                    fingerprint = store.selectedFingerprint.first(),
+                    clientIds = store.activeClientIds.first(),
+                    isFreeTurn = profile?.mode == ConnectionMode.WRAP_S,
+                    obfKey = profile?.obfKey.orEmpty(),
+                    obfProfile = profile?.obfProfile ?: "rtpopus3",
+                    freeClientId = profile?.clientId.orEmpty(),
+                    wireGuardConfig = profile?.wireGuardConfig.orEmpty()
+                )
+                if (params.peer.isNotEmpty() && params.vkHashes.isNotEmpty() && (!params.isFreeTurn || profile?.isReady == true)) {
+                    launch(Dispatchers.Main) {
+                        startTunnel(params)
+                    }
+                } else {
+                    launch(Dispatchers.Main) {
+                        stopTunnel()
+                    }
+                }
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) {
+                    stopTunnel()
+                }
+            }
+        }
+    }
+
+    private fun startTunnel(params: TunnelParams) {
+        updateNotification("Подключение...")
+        beginConnectionWakeWindow()
+
+        
+        
+        CaptchaWebViewManager.onTunnelStart(applicationContext)
+
+        TunnelManager.start(this, params)
+        startStatsUpdater()
+    }
+
+    private fun stopTunnel() {
+        updateJob?.cancel()
+
+        
+        CaptchaWebViewManager.onTunnelStop()
+
+        TunnelManager.stop()
+        hadActiveWorkers = false
+        releaseWakeLock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun setupNetworkCallback() {
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        activeNetworks.clear()
+        
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                super.onAvailable(network)
+                val wasEmpty = activeNetworks.isEmpty()
+                activeNetworks.add(network)
+                if (wasEmpty) {
+                    if (isTunnelPaused) {
+                        isTunnelPaused = false
+                        Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
+                        beginConnectionWakeWindow()
+                        TunnelManager.resume()
+                        updateNotification("Подключение...")
+                    } else {
+                        handleNetworkChange()
+                    }
+                } else {
+                    handleNetworkChange()
+                }
+            }
+
+            override fun onLost(network: Network) {
+                super.onLost(network)
+                activeNetworks.remove(network)
+                if (activeNetworks.isEmpty() && TunnelManager.running.value && !isTunnelPaused) {
+                    isTunnelPaused = true
+                    Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
+                    TunnelManager.pause()
+                    hadActiveWorkers = false
+                    releaseWakeLock()
+                    updateNotification("Ожидание сети (Фоновый сон)")
+                }
+            }
+        }
+
+        
+        
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+            
+        connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+    }
+    
+    private fun handleNetworkChange() {
+        val now = System.currentTimeMillis()
+        if (now - lastNetworkChangeTime < 5000) return
+        lastNetworkChangeTime = now
+
+        if (TunnelManager.running.value && !isTunnelPaused) {
+            Log.d("TunnelService", "Сеть изменилась, мягкий перезапуск Go-клиента")
+            beginConnectionWakeWindow()
+            TunnelManager.restartTransport()
+        }
+    }
+
+    private fun sanitizeCaptchaMode(mode: String?): String {
+        return when (mode?.lowercase()) {
+            "auto" -> "auto"
+            "rjs" -> "rjs"
+            "wv" -> "wv"
+            else -> "auto"
+        }
+    }
+
+    private fun sanitizeVkAuthMode(mode: String?): String {
+        return when (mode?.lowercase()) {
+            "legacy" -> "legacy"
+            else -> "vkcalls"
+        }
+    }
+
+    private fun beginConnectionWakeWindow() {
+        hadActiveWorkers = false
+        acquireWakeLock()
+    }
+
+    @Synchronized
+    private fun acquireWakeLock() {
+        val lock = wakeLock ?: run {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "wdtt:tunnel_connect"
+            ).apply {
+                setReferenceCounted(false)
+            }.also { wakeLock = it }
+        }
+
+        try {
+            if (lock.isHeld) {
+                lock.release()
+            }
+            lock.acquire(CONNECTION_WAKE_LOCK_TIMEOUT_MS)
+            Log.d("TunnelService", "CPU wake lock acquired for connection recovery window")
+        } catch (e: RuntimeException) {
+            wakeLock = null
+            Log.w("TunnelService", "Failed to acquire connection wake lock", e)
+        }
+    }
+
+    @Synchronized
+    private fun releaseWakeLock() {
+        val lock = wakeLock ?: return
+        try {
+            if (lock.isHeld) {
+                lock.release()
+                Log.d("TunnelService", "CPU wake lock released")
+            }
+        } catch (e: RuntimeException) {
+            Log.w("TunnelService", "Failed to release connection wake lock", e)
+        }
+        wakeLock = null
+    }
+
+    private fun updateConnectionPowerState() {
+        if (!TunnelManager.running.value || isTunnelPaused) {
+            hadActiveWorkers = false
+            releaseWakeLock()
+            return
+        }
+
+        if (TunnelManager.activeWorkers.value > 0) {
+            hadActiveWorkers = true
+            releaseWakeLock()
+            return
+        }
+
+        if (hadActiveWorkers) {
+            hadActiveWorkers = false
+            acquireWakeLock()
+        }
+    }
+
+    private fun startStatsUpdater() {
+        updateJob?.cancel()
+        updateJob = TunnelManager.scope.launch(Dispatchers.Main) {
+            
+            
+            
+            
+            
+            var wasEverUp = false
+            delay(1000)
+            while (isActive) {
+                if (!TunnelManager.running.value && !isTunnelPaused) {
+                    
+                    stopSelf()
+                    break
+                }
+                updateConnectionPowerState()
+                if (TunnelManager.running.value && !isTunnelPaused) {
+                    val helper = WireGuardHelper(applicationContext)
+                    when (helper.watchdogState()) {
+                        WireGuardHelper.WatchdogState.UP -> wasEverUp = true
+                        WireGuardHelper.WatchdogState.DISABLED_BY_EMPTY_WHITELIST -> Unit
+                        WireGuardHelper.WatchdogState.DOWN -> {
+                            if (wasEverUp) {
+                                Log.w("TunnelService", "Обнаружена пропажа или замена VPN-интерфейса! Экстренное выключение туннеля.")
+                                stopTunnel()
+                                break
+                            }
+                        }
+                    }
+                }
+                if (!isTunnelPaused) {
+                    updateNotification(buildTunnelNotificationText())
+                }
+                delay(2000)
+            }
+        }
+    }
+
+    private fun buildTunnelNotificationText(): String {
+        val statsText = TunnelManager.stats.value.trim()
+        return when {
+            statsText.isEmpty() -> "Туннель активен"
+            statsText == "Ожидание данных..." -> "Туннель активен"
+            else -> statsText
+        }
+    }
+
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            TUNNEL_NOTIFICATION_CHANNEL_ID,
+            "WDTT Туннель",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Уведомление о работе туннеля"
+            setShowBadge(false)
+            
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(null, null)
+            enableVibration(false)
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
+
+    private fun createNotification(text: String, actionName: String = "STOP", actionTitle: String = "Отключить"): Notification {
+        val openIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
+        val stopIntent = PendingIntent.getService(
+            this, if (actionName == "STOP") 1 else 2,
+            Intent(this, TunnelService::class.java).apply { action = actionName },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, TUNNEL_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("WDTT")
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_stat_connected)
+            .setOngoing(true)
+            .setLocalOnly(true)
+            .setContentIntent(openIntent)
+            .addAction(R.drawable.ic_stop, actionTitle, stopIntent)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
+            
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOnlyAlertOnce(true) 
+            .setSilent(true) 
+            .setShowWhen(false)
+            .setUsesChronometer(false)
+            .setWhen(0L)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun startPersistentForeground(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(TUNNEL_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(TUNNEL_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun updateNotification(text: String) {
+        if (lastNotificationText == text) return
+        lastNotificationText = text
+        val notification = createNotification(text)
+        getSystemService(NotificationManager::class.java).notify(TUNNEL_NOTIFICATION_ID, notification)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        networkCallback?.let {
+            connectivityManager?.unregisterNetworkCallback(it)
+        }
+        stopTunnel()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+}
