@@ -5,6 +5,7 @@ import (
 	"testing/fstest"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
+	"github.com/Jetvac/wdtt-router/internal/store"
 )
 
 func testApp(t *testing.T) *App {
@@ -122,4 +123,79 @@ func TestMeshPendingKeepsPublicSSH(t *testing.T) {
 	if sshPublic() {
 		t.Fatal("public SSH still open after the Mesh check passed")
 	}
+}
+
+// Both WDTT servers: each gets its own keys, ports and owner password, and
+// they share the traffic port.
+func TestPlanTwoWDTTServers(t *testing.T) {
+	a := testApp(t)
+	entry, _ := a.localNode()
+	_ = a.Store.SetSetting("wdtt_enabled", "1")
+	_ = a.Store.SetSetting("wdtt_turnvk_enabled", "1")
+	// A key stored by 1.2 (no kind, one device) belongs to the standard server.
+	if _, err := a.Store.DB.Exec(`INSERT INTO wdtt_keys(id,name,password_cipher,created_at) VALUES('kold','old',?,'2026-01-01T00:00:00Z')`, mustSeal(t, a, "old-key-password-0123")); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []store.WDTTKey{
+		{ID: "kstd", Name: "std", Password: "std-key-password-0123", Kind: spec.WDTTStandard, MaxDevices: 3},
+		{ID: "ktvk", Name: "tvk", Password: "tvk-key-password-0123", Kind: spec.WDTTTurnVK,
+			Unbind: []store.WDTTUnbind{{Device: "phone", At: 1800000000}}},
+	} {
+		if err := a.Store.PutWDTTKey(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plans, err := a.Plan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := plans[entry.ID].Entry
+	if e == nil || !e.WDTT.Enabled || e.TurnVK == nil || !e.TurnVK.Enabled {
+		t.Fatalf("both servers must be on: %+v", e)
+	}
+	if e.WDTT.DTLSPort != 56000 || e.TurnVK.DTLSPort != 56010 || e.TurnVK.WGPort != 56011 || e.WDTT.TProxy != e.TurnVK.TProxy {
+		t.Fatalf("ports: %+v / %+v", e.WDTT, *e.TurnVK)
+	}
+	if e.WDTT.Password == e.TurnVK.Password {
+		t.Fatal("each server has its own owner password")
+	}
+	ids := func(ks []spec.WDTTKey) map[string]spec.WDTTKey {
+		m := map[string]spec.WDTTKey{}
+		for _, k := range ks {
+			m[k.ID] = k
+		}
+		return m
+	}
+	std, tvk := ids(e.WDTT.Keys), ids(e.TurnVK.Keys)
+	if len(std) != 2 || len(tvk) != 1 || std["kold"].MaxDevices != 1 || std["kstd"].MaxDevices != 3 || tvk["ktvk"].MaxDevices != 0 {
+		t.Fatalf("keys: %+v / %+v", std, tvk)
+	}
+	if u := tvk["ktvk"].Unbind; len(u) != 1 || u[0].Device != "phone" || u[0].At != 1800000000 {
+		t.Fatalf("unbind: %+v", u)
+	}
+	if got := e.WDTTServers(); len(got) != 2 || got[0].Kind != spec.WDTTStandard || got[1].Kind != spec.WDTTTurnVK {
+		t.Fatalf("servers: %+v", got)
+	}
+
+	// The TurnVK server alone: the standard one stays off.
+	_ = a.Store.SetSetting("wdtt_enabled", "0")
+	plans, _ = a.Plan()
+	if e := plans[entry.ID].Entry; e.WDTT.Enabled || e.TurnVK == nil || len(e.WDTTServers()) != 1 {
+		t.Fatalf("turnvk only: %+v", e)
+	}
+	// Both off: no TurnVK block in the spec, so its hash is the one of 1.2.
+	_ = a.Store.SetSetting("wdtt_turnvk_enabled", "0")
+	plans, _ = a.Plan()
+	if e := plans[entry.ID].Entry; e.TurnVK != nil {
+		t.Fatal("a disabled TurnVK server must not appear in the spec")
+	}
+}
+
+func mustSeal(t *testing.T, a *App, s string) string {
+	t.Helper()
+	c, err := a.Store.Seal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

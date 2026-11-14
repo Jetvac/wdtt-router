@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,14 @@ import (
 // MainKeyID identifies the owner password, which is not bound to a device.
 const MainKeyID = "main"
 
+// Client kinds a server is set up for. Both speak the same protocol today;
+// the kind lets the TurnVK server change it without touching the server
+// that standard WDTT clients use.
+const (
+	KindStandard = "standard"
+	KindTurnVK   = "turnvk"
+)
+
 // Config is written by the agent and re-read on SIGHUP.
 type Config struct {
 	Listen       string `json:"listen"`
@@ -27,18 +36,35 @@ type Config struct {
 	StatusFile   string `json:"status_file"`
 	MainPassword string `json:"main_password"`
 	Keys         []Key  `json:"keys"`
-	// MTU of the tunnel (wdtt0 and the clients' config); 0 means TunMTU.
+	// MTU of the tunnel (the interface and the clients' config); 0 means TunMTU.
 	MTU int `json:"mtu,omitempty"`
+	// Kind of clients the server is for; "" means KindStandard.
+	Kind string `json:"kind,omitempty"`
+	// Iface is the TUN interface ("" means wdtt0) and Network its /24
+	// ("" means 10.66.66.0/24); the server takes the .1 address.
+	Iface   string `json:"iface,omitempty"`
+	Network string `json:"network,omitempty"`
 }
 
-// Key is an access password issued from the panel. Like in the original
-// server it is bound to the first device that connects with it.
+// Key is an access password issued from the panel. It binds to the first
+// MaxDevices devices that connect with it (0 = any number of devices).
 type Key struct {
 	ID          string `json:"id"`
 	Password    string `json:"password"`
 	ExpiresAt   int64  `json:"expires_at,omitempty"` // Unix seconds, 0 = never
 	Disabled    bool   `json:"disabled,omitempty"`
-	DeviceEpoch int    `json:"device_epoch,omitempty"` // raising it unbinds the device
+	DeviceEpoch int    `json:"device_epoch,omitempty"` // raising it unbinds every device
+	MaxDevices  int    `json:"max_devices,omitempty"`
+	// Unbind frees single devices: a device bound no later than At loses
+	// its binding (and its address). Later bindings are not affected, so
+	// the list can stay in the configuration.
+	Unbind []Unbind `json:"unbind,omitempty"`
+}
+
+// Unbind asks the server to forget one device of a key.
+type Unbind struct {
+	Device string `json:"device"`
+	At     int64  `json:"at"`
 }
 
 func (k Key) active(now time.Time) bool {
@@ -63,8 +89,38 @@ func LoadConfig(path string) (*Config, error) {
 	if c.MTU == 0 {
 		c.MTU = TunMTU
 	}
+	if c.Kind == "" {
+		c.Kind = KindStandard
+	}
+	if c.Iface == "" {
+		c.Iface = DefaultIface
+	}
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
 	return &c, c.Validate()
 }
+
+// Defaults of the first (standard) server.
+const (
+	DefaultIface   = "wdtt0"
+	DefaultNetwork = "10.66.66.0/24"
+)
+
+var reIface = regexp.MustCompile(`^[a-z][a-z0-9]{0,14}$`)
+
+// subnet is the /24 of the clients as "a.b.c." (the prefix of every address).
+func (c *Config) subnet() string {
+	p, err := netip.ParsePrefix(c.Network)
+	if err != nil {
+		p = netip.MustParsePrefix(DefaultNetwork)
+	}
+	a := p.Addr().As4()
+	return fmt.Sprintf("%d.%d.%d.", a[0], a[1], a[2])
+}
+
+// ServerAddr is the server's address on the TUN interface.
+func (c *Config) ServerAddr() string { return c.subnet() + "1" }
 
 // Validate checks the configuration.
 func (c *Config) Validate() error {
@@ -76,6 +132,18 @@ func (c *Config) Validate() error {
 	}
 	if c.MTU != 0 && (c.MTU < MinMTU || c.MTU > MaxMTU) {
 		return fmt.Errorf("mtu must be %d..%d", MinMTU, MaxMTU)
+	}
+	if c.Kind != "" && c.Kind != KindStandard && c.Kind != KindTurnVK {
+		return fmt.Errorf("unknown kind %q", c.Kind)
+	}
+	if c.Iface != "" && !reIface.MatchString(c.Iface) {
+		return fmt.Errorf("invalid interface name %q", c.Iface)
+	}
+	if c.Network != "" {
+		p, err := netip.ParsePrefix(c.Network)
+		if err != nil || p.Bits() != 24 || !p.Addr().Is4() || p.Masked() != p {
+			return fmt.Errorf("network must be an IPv4 /24, got %q", c.Network)
+		}
 	}
 	for _, d := range strings.Split(c.DNS, ",") {
 		if net.ParseIP(strings.TrimSpace(d)) == nil {
@@ -93,6 +161,9 @@ func (c *Config) Validate() error {
 		}
 		if k.Password == "" || seen[k.Password] {
 			return fmt.Errorf("key %s: empty or duplicate password", k.ID)
+		}
+		if k.MaxDevices < 0 || k.MaxDevices > maxClients {
+			return fmt.Errorf("key %s: max_devices must be 0..%d", k.ID, maxClients)
 		}
 		ids[k.ID], seen[k.Password] = true, true
 	}
@@ -112,14 +183,34 @@ type deviceState struct {
 	Private  string `json:"private_key"`
 	Public   string `json:"public_key"`
 	LastSeen int64  `json:"last_seen,omitempty"`
+	Key      string `json:"key,omitempty"` // password it last connected with
+	Up       int64  `json:"up_bytes,omitempty"`
+	Down     int64  `json:"down_bytes,omitempty"`
 }
 
 type keyState struct {
-	DeviceID    string `json:"device_id,omitempty"`
-	DeviceEpoch int    `json:"device_epoch,omitempty"`
-	Up          int64  `json:"up_bytes"`
-	Down        int64  `json:"down_bytes"`
-	LastSeen    int64  `json:"last_seen,omitempty"`
+	// DeviceID is the single bound device of earlier versions; it moves
+	// into Devices when the state is read.
+	DeviceID    string        `json:"device_id,omitempty"`
+	Devices     []boundDevice `json:"devices,omitempty"`
+	DeviceEpoch int           `json:"device_epoch,omitempty"`
+	Up          int64         `json:"up_bytes"`
+	Down        int64         `json:"down_bytes"`
+	LastSeen    int64         `json:"last_seen,omitempty"`
+}
+
+type boundDevice struct {
+	ID string `json:"id"`
+	At int64  `json:"at"` // Unix seconds the device was bound
+}
+
+func (k *keyState) has(dev string) bool {
+	for _, d := range k.Devices {
+		if d.ID == dev {
+			return true
+		}
+	}
+	return false
 }
 
 func newKeyPair() (priv, pub string, err error) {
@@ -144,7 +235,7 @@ func validKey(b64 string) bool {
 // loadState reads state.json. On first start it takes over the server keys
 // and devices of an original WDTT server (wg-keys.dat, passwords.json) from
 // the same directory, so existing clients keep their addresses.
-func loadState(dir string) (*state, bool, error) {
+func loadState(dir, subnet string) (*state, bool, error) {
 	st := &state{Devices: map[string]*deviceState{}, Keys: map[string]*keyState{}}
 	b, err := os.ReadFile(filepath.Join(dir, "state.json"))
 	if err == nil {
@@ -156,6 +247,14 @@ func loadState(dir string) (*state, bool, error) {
 		}
 		if st.Keys == nil {
 			st.Keys = map[string]*keyState{}
+		}
+		for _, k := range st.Keys {
+			if k.DeviceID != "" {
+				if !k.has(k.DeviceID) {
+					k.Devices = append(k.Devices, boundDevice{ID: k.DeviceID})
+				}
+				k.DeviceID = ""
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, false, err
@@ -178,7 +277,7 @@ func loadState(dir string) (*state, bool, error) {
 		}
 		if b, err := os.ReadFile(filepath.Join(dir, "passwords.json")); err == nil && json.Unmarshal(b, &old) == nil {
 			for id, d := range old.Devices {
-				if validKey(d.PrivKey) && validKey(d.PubKey) && ipIndex(d.IP) > 0 {
+				if validKey(d.PrivKey) && validKey(d.PubKey) && ipIndex(subnet, d.IP) > 0 {
 					st.Devices[id] = &deviceState{IP: d.IP, Private: d.PrivKey, Public: d.PubKey}
 					migrated = true
 				}
@@ -207,14 +306,11 @@ func saveState(dir string, st *state) error {
 	return os.Rename(tmp, filepath.Join(dir, "state.json"))
 }
 
-// Client addresses: 10.66.66.2 – 10.66.66.250, the server is .1.
-const (
-	netPrefix = "10.66.66."
-	ServerIP  = netPrefix + "1"
-)
+// Client addresses are .2 – .250 of the server's /24, the server is .1.
+const maxClients = 249
 
-func ipIndex(ip string) int {
-	rest, ok := strings.CutPrefix(ip, netPrefix)
+func ipIndex(subnet, ip string) int {
+	rest, ok := strings.CutPrefix(ip, subnet)
 	if !ok {
 		return 0
 	}
@@ -225,14 +321,14 @@ func ipIndex(ip string) int {
 	return n
 }
 
-func (st *state) freeIP() string {
+func (st *state) freeIP(subnet string) string {
 	used := map[int]bool{}
 	for _, d := range st.Devices {
-		used[ipIndex(d.IP)] = true
+		used[ipIndex(subnet, d.IP)] = true
 	}
 	for i := 2; i <= 250; i++ {
 		if !used[i] {
-			return fmt.Sprintf("%s%d", netPrefix, i)
+			return fmt.Sprintf("%s%d", subnet, i)
 		}
 	}
 	return ""

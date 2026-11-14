@@ -48,6 +48,9 @@ func (a *App) recordMetrics(n Node) {
 	if n.Local && st.WDTT != nil {
 		sessions = st.WDTT.Sessions
 	}
+	if n.Local && st.TurnVK != nil && st.TurnVK.Runtime != nil {
+		sessions = max(sessions, 0) + st.TurnVK.Runtime.Sessions
+	}
 	_, _ = a.Store.DB.Exec(`INSERT INTO metrics(node_id,at,load,mem,rx_mbps,tx_mbps,sessions,ping_ms) VALUES(?,?,?,?,?,?,?,-1)`,
 		n.ID, now.Unix(), st.Load1, mem, rx, tx, sessions)
 }

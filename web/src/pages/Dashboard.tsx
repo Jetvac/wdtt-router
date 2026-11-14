@@ -23,7 +23,7 @@ export default function Dashboard() {
   const chain = data.chain.map((id) => byId.get(id)).filter(Boolean) as NodeView[]
   const remote = data.nodes.filter((n) => !n.local)
   const outOfSync = data.nodes.filter((n) => n.out_of_sync)
-  const step = !data.cloudflare ? 0 : remote.length === 0 ? 1 : chain.length < 2 ? 2 : !data.services.wdtt_enabled && !data.services.xui_enabled ? 3 : 4
+  const step = !data.cloudflare ? 0 : remote.length === 0 ? 1 : chain.length < 2 ? 2 : !data.services.wdtt_enabled && !data.services.turnvk?.enabled && !data.services.xui_enabled ? 3 : 4
 
   const run = async (path: string) => {
     try {
@@ -194,7 +194,7 @@ function Arrow({ label }: { label?: string }) {
 }
 
 function ChainFlow({ chain, data }: { chain: NodeView[]; data: Overview }) {
-  const sources = [data.services.wdtt_enabled && 'WDTT', data.services.xui_enabled && '3x-ui'].filter(Boolean) as string[]
+  const sources = [data.services.wdtt_enabled && 'WDTT', data.services.turnvk?.enabled && 'TurnVK', data.services.xui_enabled && '3x-ui'].filter(Boolean) as string[]
   return (
     <div className="chain-flow">
       <div className="chain-step">

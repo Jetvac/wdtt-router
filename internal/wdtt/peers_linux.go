@@ -16,13 +16,11 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// Iface is the TUN interface of the WDTT clients.
-const Iface = "wdtt0"
-
 type wgPeers struct {
-	mu   sync.Mutex
-	dev  *device.Device
-	have map[string]string
+	iface string
+	mu    sync.Mutex
+	dev   *device.Device
+	have  map[string]string
 }
 
 func b64hex(k string) (string, error) {
@@ -41,13 +39,14 @@ func ipcmd(args ...string) error {
 	return nil
 }
 
-// NewLinuxPeers creates the wdtt0 interface with a userspace WireGuard
+// NewLinuxPeers creates the TUN interface with a userspace WireGuard
 // device that talks to clients through the bind.
-func NewLinuxPeers(b *bind, serverPrivate string, mtu int) (Peers, error) {
-	_ = exec.Command("ip", "link", "del", Iface).Run()
-	t, err := tun.CreateTUN(Iface, mtu)
+func NewLinuxPeers(b *bind, o PeerOptions) (Peers, error) {
+	iface, serverPrivate, mtu := o.Iface, o.Private, o.MTU
+	_ = exec.Command("ip", "link", "del", iface).Run()
+	t, err := tun.CreateTUN(iface, mtu)
 	if err != nil {
-		return nil, fmt.Errorf("create %s: %w", Iface, err)
+		return nil, fmt.Errorf("create %s: %w", iface, err)
 	}
 	logger := &device.Logger{Verbosef: device.DiscardLogf, Errorf: func(f string, a ...any) {
 		// Peers have no endpoint until their client connects; WireGuard
@@ -74,8 +73,8 @@ func NewLinuxPeers(b *bind, serverPrivate string, mtu int) (Peers, error) {
 		return nil, err
 	}
 	for _, args := range [][]string{
-		{"addr", "replace", ServerIP + "/24", "dev", Iface},
-		{"link", "set", Iface, "mtu", fmt.Sprint(mtu), "up"},
+		{"addr", "replace", o.Addr, "dev", iface},
+		{"link", "set", iface, "mtu", fmt.Sprint(mtu), "up"},
 	} {
 		if err := ipcmd(args...); err != nil {
 			dev.Close()
@@ -83,12 +82,12 @@ func NewLinuxPeers(b *bind, serverPrivate string, mtu int) (Peers, error) {
 		}
 	}
 	// Clients get IPv4 only; no IPv6 link-local chatter on the interface.
-	_ = os.WriteFile("/proc/sys/net/ipv6/conf/"+Iface+"/disable_ipv6", []byte("1"), 0644)
+	_ = os.WriteFile("/proc/sys/net/ipv6/conf/"+iface+"/disable_ipv6", []byte("1"), 0644)
 	if err := dev.Up(); err != nil {
 		dev.Close()
 		return nil, err
 	}
-	return &wgPeers{dev: dev, have: map[string]string{}}, nil
+	return &wgPeers{iface: iface, dev: dev, have: map[string]string{}}, nil
 }
 
 func (p *wgPeers) Set(want map[string]string) error {
@@ -199,13 +198,13 @@ func (p *wgPeers) lastHandshake(hexKey string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// SetMTU changes the MTU of wdtt0 in place.
+// SetMTU changes the MTU of the interface in place.
 func (p *wgPeers) SetMTU(mtu int) error {
-	return ipcmd("link", "set", Iface, "mtu", fmt.Sprint(mtu))
+	return ipcmd("link", "set", p.iface, "mtu", fmt.Sprint(mtu))
 }
 
 func (p *wgPeers) Close() error {
 	p.dev.Close()
-	_ = exec.Command("ip", "link", "del", Iface).Run()
+	_ = exec.Command("ip", "link", "del", p.iface).Run()
 	return nil
 }

@@ -167,6 +167,11 @@
       "root_keys": 2,
       "auto_updates": true,
       "reboot_required": false
+     },
+     "wdtt_turnvk": {
+      "installed": true,
+      "active": "active",
+      "iface": true
      }
     },
     "last_seen": "2026-11-07T09:18:11Z",
@@ -281,7 +286,14 @@
    "xui_enabled": true,
    "xui_route_via_chain": true,
    "panel_port": 8443,
-   "panel_allow": []
+   "panel_allow": [],
+   "turnvk": {
+    "enabled": true,
+    "dtls_port": 56010,
+    "wg_port": 56011,
+    "dns": "1.1.1.1",
+    "mtu": 1280
+   }
   },
   "version": "1.0.0-rc1"
  },
@@ -454,7 +466,14 @@
    "xui_enabled": true,
    "xui_route_via_chain": true,
    "panel_port": 8443,
-   "panel_allow": []
+   "panel_allow": [],
+   "turnvk": {
+    "enabled": true,
+    "dtls_port": 56010,
+    "wg_port": 56011,
+    "dns": "1.1.1.1",
+    "mtu": 1280
+   }
   },
   "status": {
    "agent_version": "1.0.0-rc1",
@@ -496,7 +515,12 @@
    "xui_installed": true,
    "xui_active": "active",
    "xui_ports": [],
-   "problems": []
+   "problems": [],
+   "wdtt_turnvk": {
+    "installed": true,
+    "active": "active",
+    "iface": true
+   }
   },
   "xui_credentials": true
  },
@@ -1205,7 +1229,29 @@
     "sessions": 24,
     "up_bytes": 183500000,
     "down_bytes": 2400000000,
-    "last_seen": 1794142940
+    "last_seen": 1794142940,
+    "kind": "standard",
+    "max_devices": 3,
+    "devices": [
+     {
+      "id": "a1b2c3d4e5f60718",
+      "ip": "10.66.66.3",
+      "sessions": 16,
+      "up_bytes": 120500000,
+      "down_bytes": 1700000000,
+      "last_seen": 1794142940,
+      "bound_at": 1793365400
+     },
+     {
+      "id": "b7c6d5e4f3a29180",
+      "ip": "10.66.66.6",
+      "sessions": 8,
+      "up_bytes": 63000000,
+      "down_bytes": 700000000,
+      "last_seen": 1794142880,
+      "bound_at": 1793883800
+     }
+    ]
    },
    {
     "id": "k7hd2kq9wz",
@@ -1220,7 +1266,10 @@
     "sessions": 0,
     "up_bytes": 0,
     "down_bytes": 0,
-    "last_seen": 0
+    "last_seen": 0,
+    "kind": "standard",
+    "max_devices": 0,
+    "devices": []
    },
    {
     "id": "kpl0v1x4ad",
@@ -1235,7 +1284,20 @@
     "sessions": 0,
     "up_bytes": 5200000,
     "down_bytes": 81000000,
-    "last_seen": 1793970200
+    "last_seen": 1793970200,
+    "kind": "standard",
+    "max_devices": 1,
+    "devices": [
+     {
+      "id": "9f8e7d6c5b4a3921",
+      "ip": "10.66.66.4",
+      "sessions": 0,
+      "up_bytes": 5200000,
+      "down_bytes": 81000000,
+      "last_seen": 1793970200,
+      "bound_at": 1792415000
+     }
+    ]
    },
    {
     "id": "kr2bq8n5ce",
@@ -1250,7 +1312,57 @@
     "sessions": 0,
     "up_bytes": 1200000,
     "down_bytes": 9000000,
-    "last_seen": 1793711000
+    "last_seen": 1793711000,
+    "kind": "standard",
+    "max_devices": 1,
+    "devices": [
+     {
+      "id": "0011223344556677",
+      "ip": "10.66.66.5",
+      "sessions": 0,
+      "up_bytes": 1200000,
+      "down_bytes": 9000000,
+      "last_seen": 1793711000,
+      "bound_at": 1791983000
+     }
+    ]
+   },
+   {
+    "id": "ktv8a1c2d3",
+    "name": "Тест TurnVK",
+    "vk_hash": "AbCdEfGhIjKlMnOp1234",
+    "expires_at": 0,
+    "disabled": false,
+    "created_at": "2026-11-13T10:00:00Z",
+    "state": "active",
+    "kind": "turnvk",
+    "max_devices": 0,
+    "device_id": "turnvk-pixel-7",
+    "device_ip": "10.66.67.2",
+    "sessions": 12,
+    "up_bytes": 40000000,
+    "down_bytes": 520000000,
+    "last_seen": 1794142970,
+    "devices": [
+     {
+      "id": "turnvk-pixel-7",
+      "ip": "10.66.67.2",
+      "sessions": 12,
+      "up_bytes": 30000000,
+      "down_bytes": 400000000,
+      "last_seen": 1794142970,
+      "bound_at": 1794056600
+     },
+     {
+      "id": "turnvk-win-desktop",
+      "ip": "10.66.67.3",
+      "sessions": 0,
+      "up_bytes": 10000000,
+      "down_bytes": 120000000,
+      "last_seen": 1794135800,
+      "bound_at": 1794063000
+     }
+    ]
    }
   ],
   "limit": 200,
@@ -1266,26 +1378,202 @@
    "main": {
     "sessions": 8,
     "up_bytes": 52000000,
-    "down_bytes": 610000000
+    "down_bytes": 610000000,
+    "devices": [
+     {
+      "id": "owner-phone",
+      "ip": "10.66.66.2",
+      "sessions": 8,
+      "up_bytes": 52000000,
+      "down_bytes": 610000000,
+      "last_seen": 1794142990
+     }
+    ]
    }
-  }
+  },
+  "max_devices": 249,
+  "servers": {
+   "standard": {
+    "kind": "standard",
+    "label": "стандартный клиент WDTT",
+    "enabled": true,
+    "dtls_port": 56000,
+    "main_vk_hash": "AbCdEfGhIjKlMnOp1234",
+    "runtime": {
+     "sessions": 32,
+     "devices": 5,
+     "version": "1.1.0",
+     "started_at": 1794139400,
+     "updated_at": 1794143000,
+     "auth_failures": 17,
+     "handshake_failures": 2,
+     "main": {
+      "sessions": 8,
+      "up_bytes": 52000000,
+      "down_bytes": 610000000,
+      "devices": [
+       {
+        "id": "owner-phone",
+        "ip": "10.66.66.2",
+        "sessions": 8,
+        "up_bytes": 52000000,
+        "down_bytes": 610000000,
+        "last_seen": 1794142990
+       }
+      ]
+     }
+    },
+    "main": {
+     "sessions": 8,
+     "up_bytes": 52000000,
+     "down_bytes": 610000000,
+     "devices": [
+      {
+       "id": "owner-phone",
+       "ip": "10.66.66.2",
+       "sessions": 8,
+       "up_bytes": 52000000,
+       "down_bytes": 610000000,
+       "last_seen": 1794142990
+      }
+     ]
+    }
+   },
+   "turnvk": {
+    "kind": "turnvk",
+    "label": "клиент TurnVK",
+    "enabled": true,
+    "dtls_port": 56010,
+    "main_vk_hash": "",
+    "runtime": {
+     "sessions": 12,
+     "devices": 2,
+     "version": "1.3.0",
+     "started_at": 1794139400,
+     "updated_at": 1794143000,
+     "auth_failures": 0,
+     "handshake_failures": 0,
+     "main": {
+      "sessions": 0,
+      "up_bytes": 0,
+      "down_bytes": 0
+     }
+    },
+    "main": {
+     "sessions": 0,
+     "up_bytes": 0,
+     "down_bytes": 0
+    }
+   }
+  },
+  "devices": [
+   {
+    "id": "owner-phone",
+    "ip": "10.66.66.2",
+    "sessions": 8,
+    "up_bytes": 52000000,
+    "down_bytes": 610000000,
+    "last_seen": 1794142990,
+    "kind": "standard",
+    "key_id": "main",
+    "key_name": "Пароль владельца"
+   },
+   {
+    "id": "turnvk-pixel-7",
+    "ip": "10.66.67.2",
+    "sessions": 12,
+    "up_bytes": 30000000,
+    "down_bytes": 400000000,
+    "last_seen": 1794142970,
+    "bound_at": 1794056600,
+    "kind": "turnvk",
+    "key_id": "ktv8a1c2d3",
+    "key_name": "Тест TurnVK"
+   },
+   {
+    "id": "a1b2c3d4e5f60718",
+    "ip": "10.66.66.3",
+    "sessions": 16,
+    "up_bytes": 120500000,
+    "down_bytes": 1700000000,
+    "last_seen": 1794142940,
+    "bound_at": 1793365400,
+    "kind": "standard",
+    "key_id": "kq3x8m2a7c",
+    "key_name": "Телефон Анны"
+   },
+   {
+    "id": "b7c6d5e4f3a29180",
+    "ip": "10.66.66.6",
+    "sessions": 8,
+    "up_bytes": 63000000,
+    "down_bytes": 700000000,
+    "last_seen": 1794142880,
+    "bound_at": 1793883800,
+    "kind": "standard",
+    "key_id": "kq3x8m2a7c",
+    "key_name": "Телефон Анны"
+   },
+   {
+    "id": "turnvk-win-desktop",
+    "ip": "10.66.67.3",
+    "sessions": 0,
+    "up_bytes": 10000000,
+    "down_bytes": 120000000,
+    "last_seen": 1794135800,
+    "bound_at": 1794063000,
+    "kind": "turnvk",
+    "key_id": "ktv8a1c2d3",
+    "key_name": "Тест TurnVK"
+   },
+   {
+    "id": "9f8e7d6c5b4a3921",
+    "ip": "10.66.66.4",
+    "sessions": 0,
+    "up_bytes": 5200000,
+    "down_bytes": 81000000,
+    "last_seen": 1793970200,
+    "bound_at": 1792415000,
+    "kind": "standard",
+    "key_id": "kpl0v1x4ad",
+    "key_name": "Гость на неделю"
+   },
+   {
+    "id": "0011223344556677",
+    "ip": "10.66.66.5",
+    "sessions": 0,
+    "up_bytes": 1200000,
+    "down_bytes": 9000000,
+    "last_seen": 1793711000,
+    "bound_at": 1791983000,
+    "kind": "standard",
+    "key_id": "kr2bq8n5ce",
+    "key_name": "Ноутбук"
+   }
+  ]
  },
  "/api/wdtt/keys/main/link": {
   "password": "Xy7.mock-owner-password",
   "host": "203.0.113.10",
   "port": "56000",
-  "link": "wdtt://203.0.113.10:56000:56001:9000:Xy7.mock-owner-password:AbCdEfGhIjKlMnOp1234"
+  "link": "wdtt://203.0.113.10:56000:56001:9000:Xy7.mock-owner-password:AbCdEfGhIjKlMnOp1234",
+  "kind": "standard",
+  "client": "стандартный клиент WDTT"
  },
  "/api/wdtt/keys/kq3x8m2a7c/link": {
   "password": "mockKeyPassword12345",
   "host": "203.0.113.10",
   "port": "56000",
-  "link": "wdtt://203.0.113.10:56000:56001:9000:mockKeyPassword12345:AbCdEfGhIjKlMnOp1234"
+  "link": "wdtt://203.0.113.10:56000:56001:9000:mockKeyPassword12345:AbCdEfGhIjKlMnOp1234",
+  "kind": "standard",
+  "client": "стандартный клиент WDTT"
  },
  "/api/wdtt/keys/k7hd2kq9wz/link": {
   "password": "mockKeyPassword67890",
   "host": "203.0.113.10",
-  "port": "56000"
+  "port": "56000",
+  "kind": "standard",
+  "client": "стандартный клиент WDTT"
  },
  "/api/bot": {
   "node_id": 2,
@@ -5383,5 +5671,20 @@
     }
    ]
   }
+ },
+ "/api/wdtt/keys/main/link?kind=turnvk": {
+  "password": "Tv9.mock-owner-password",
+  "host": "203.0.113.10",
+  "port": "56010",
+  "kind": "turnvk",
+  "client": "клиент TurnVK"
+ },
+ "/api/wdtt/keys/ktv8a1c2d3/link": {
+  "password": "mockTurnVKPassword123",
+  "host": "203.0.113.10",
+  "port": "56010",
+  "kind": "turnvk",
+  "client": "клиент TurnVK",
+  "link": "wdtt://203.0.113.10:56010:56011:9000:mockTurnVKPassword123:AbCdEfGhIjKlMnOp1234"
  }
 }

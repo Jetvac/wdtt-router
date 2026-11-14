@@ -42,7 +42,7 @@ func (a *App) postBackup(w http.ResponseWriter, r *http.Request, s auth.Session)
 		apiError(w, 500, err.Error())
 		return
 	}
-	entries, err := backup.Collect(a.DataDir, agent.WDTTDataDir, db)
+	entries, err := backup.Collect(a.DataDir, agent.WDTTDataDirs(), db)
 	if err != nil {
 		apiError(w, 500, err.Error())
 		return

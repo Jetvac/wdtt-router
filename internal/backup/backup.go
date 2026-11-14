@@ -137,10 +137,10 @@ func Open(data []byte, pass string) ([]Entry, error) {
 	return out, nil
 }
 
-// safeName admits only "panel/<file>" and "wdtt/<file>".
+// safeName admits only "panel/<file>", "wdtt/<file>" and "wdtt-turnvk/<file>".
 func safeName(n string) bool {
 	dir, file := path.Split(n)
-	return (dir == "panel/" || dir == "wdtt/") && file != "" && file != "." && file != ".." && !strings.ContainsAny(file, `/\`)
+	return (dir == "panel/" || dir == "wdtt/" || dir == "wdtt-turnvk/") && file != "" && file != "." && file != ".." && !strings.ContainsAny(file, `/\`)
 }
 
 func gcm(key []byte) (cipher.AEAD, error) {
@@ -153,7 +153,9 @@ func gcm(key []byte) (cipher.AEAD, error) {
 
 // Collect reads the files of the panel and WDTT directories. db is a
 // consistent snapshot of the database (VACUUM INTO), stored as state.db.
-func Collect(panelDir, wdttDir string, db []byte) ([]Entry, error) {
+// wdttDirs maps the name of each WDTT server ("wdtt", "wdtt-turnvk") to
+// its data directory.
+func Collect(panelDir string, wdttDirs map[string]string, db []byte) ([]Entry, error) {
 	out := []Entry{{Name: "panel/state.db", Mode: 0600, Data: db}}
 	for _, f := range []string{"master.key", "ssh_ed25519", "ssh_ed25519.pub", "panel.crt", "panel.key", "public_host"} {
 		b, err := os.ReadFile(filepath.Join(panelDir, f))
@@ -165,19 +167,26 @@ func Collect(panelDir, wdttDir string, db []byte) ([]Entry, error) {
 		}
 		out = append(out, Entry{Name: "panel/" + f, Mode: 0600, Data: b})
 	}
-	if b, err := os.ReadFile(filepath.Join(wdttDir, "state.json")); err == nil {
-		out = append(out, Entry{Name: "wdtt/state.json", Mode: 0600, Data: b})
+	for _, name := range []string{"wdtt", "wdtt-turnvk"} {
+		if dir, ok := wdttDirs[name]; ok {
+			if b, err := os.ReadFile(filepath.Join(dir, "state.json")); err == nil {
+				out = append(out, Entry{Name: name + "/state.json", Mode: 0600, Data: b})
+			}
+		}
 	}
 	return out, nil
 }
 
 // Restore writes the entries into place. Existing files are kept with a
 // ".before-restore" suffix.
-func Restore(entries []Entry, panelDir, wdttDir string) error {
+func Restore(entries []Entry, panelDir string, wdttDirs map[string]string) error {
 	for _, e := range entries {
 		dir := panelDir
-		if strings.HasPrefix(e.Name, "wdtt/") {
-			dir = wdttDir
+		if d, _ := path.Split(e.Name); d != "panel/" {
+			var ok bool
+			if dir, ok = wdttDirs[strings.TrimSuffix(d, "/")]; !ok {
+				continue
+			}
 		}
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err

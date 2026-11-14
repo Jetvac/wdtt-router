@@ -83,10 +83,7 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 			if s.Hop != nil {
 				in.HopPort = s.Hop.Port
 			}
-			if s.Entry != nil && s.Entry.WDTT.Enabled {
-				w := s.Entry.WDTT
-				in.WDTT = &w
-			}
+			in.WDTT = s.Entry.WDTTServers()
 			if s.Entry != nil && s.Entry.XUI.Enabled {
 				in.XUIPorts = XUIPorts()
 			}
@@ -95,7 +92,7 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 			if err != nil {
 				return err
 			}
-			return reconcileMaintain(ctx, s.Entry != nil && (s.Entry.WDTT.Enabled || s.Entry.XUI.Enabled))
+			return reconcileMaintain(ctx, s.Entry != nil && (len(s.Entry.WDTTServers()) > 0 || s.Entry.XUI.Enabled))
 		}},
 	}
 	for _, st := range steps {

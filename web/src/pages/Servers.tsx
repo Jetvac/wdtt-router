@@ -319,6 +319,11 @@ function ServerDrawer({ node, onClose, onChanged, onAction }: { node: NodeView |
                   {node.local && (
                     <>
                       <Descriptions.Item label="WDTT">{s.wdtt_installed ? <Tag color={s.wdtt_active === 'active' ? 'success' : 'error'}>{s.wdtt_active}</Tag> : <Tag>не установлен</Tag>}</Descriptions.Item>
+                      {s.wdtt_turnvk?.installed && (
+                        <Descriptions.Item label="WDTT для TurnVK">
+                          <Tag color={s.wdtt_turnvk.active === 'active' ? 'success' : 'error'}>{s.wdtt_turnvk.active}</Tag>
+                        </Descriptions.Item>
+                      )}
                       <Descriptions.Item label="3x-ui">{s.xui_installed ? <Tag color={s.xui_active === 'active' ? 'success' : 'error'}>{s.xui_active}</Tag> : <Tag>не установлен</Tag>}</Descriptions.Item>
                     </>
                   )}

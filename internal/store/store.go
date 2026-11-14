@@ -126,6 +126,43 @@ CREATE INDEX IF NOT EXISTS idx_metrics_at ON metrics(at);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at DESC);
 `)
+	if err != nil {
+		return err
+	}
+	// Columns added after the first release. Keys made before device limits
+	// keep their single device.
+	for _, c := range []struct{ table, column, def string }{
+		{"wdtt_keys", "kind", "TEXT NOT NULL DEFAULT 'standard'"},
+		{"wdtt_keys", "max_devices", "INTEGER NOT NULL DEFAULT 1"},
+		{"wdtt_keys", "unbind", "TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		if err := s.addColumn(c.table, c.column, c.def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) addColumn(table, column, def string) error {
+	rows, err := s.DB.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return err
+		}
+		if n == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	_, err = s.DB.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
 	return err
 }
 

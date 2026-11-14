@@ -475,6 +475,15 @@ func (a *App) nodePlan(w http.ResponseWriter, r *http.Request, s auth.Session) {
 		for i := range e.WDTT.Keys {
 			e.WDTT.Keys[i].Password = redacted(e.WDTT.Keys[i].Password)
 		}
+		if e.TurnVK != nil {
+			t := *e.TurnVK
+			t.Password = redacted(t.Password)
+			t.Keys = slices.Clone(t.Keys)
+			for i := range t.Keys {
+				t.Keys[i].Password = redacted(t.Keys[i].Password)
+			}
+			e.TurnVK = &t
+		}
 		e.Chain = slices.Clone(e.Chain)
 		for i := range e.Chain {
 			e.Chain[i].UUID, e.Chain[i].Encryption = redacted(e.Chain[i].UUID), redacted(e.Chain[i].Encryption)
@@ -579,97 +588,27 @@ func (a *App) getServices(w http.ResponseWriter, r *http.Request, s auth.Session
 	})
 }
 
-func (a *App) putWDTT(w http.ResponseWriter, r *http.Request, s auth.Session) {
-	var body struct {
-		Enabled  bool   `json:"enabled"`
-		DTLSPort int    `json:"dtls_port"`
-		DNS      string `json:"dns"`
-		Rotate   bool   `json:"rotate_password"`
-		// Password sets a chosen owner password, e.g. the one existing
-		// clients of an earlier WDTT server already use.
-		Password *string `json:"password"`
-		VKHash   *string `json:"vk_hash"`
-		MTU      int     `json:"mtu"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	if body.DTLSPort == 0 {
-		body.DTLSPort = 56000
-	}
-	if body.MTU == 0 {
-		body.MTU = 1280
-	}
-	if body.MTU < 1200 || body.MTU > 1340 {
-		apiError(w, 400, "MTU туннеля: от 1200 до 1340")
-		return
-	}
-	if body.DTLSPort < 1024 || body.DTLSPort > 65534 || body.DTLSPort == a.PanelPort {
-		apiError(w, 400, "порт DTLS должен быть в диапазоне 1024–65534 и не совпадать с портом панели")
-		return
-	}
-	if body.DNS == "" {
-		body.DNS = "1.1.1.1"
-	}
-	for _, d := range strings.Split(body.DNS, ",") {
-		if net.ParseIP(strings.TrimSpace(d)) == nil {
-			apiError(w, 400, "DNS: укажите IP-адреса через запятую")
-			return
-		}
-	}
-	var hash string
-	if body.VKHash != nil {
-		h, err := normalizeVKHashes(*body.VKHash)
-		if err != nil {
-			apiError(w, 400, err.Error())
-			return
-		}
-		hash = h
-	}
-	if body.Password != nil && *body.Password != "" {
-		if !rePassword.MatchString(*body.Password) {
-			apiError(w, 400, "пароль владельца: 16–128 символов A–Z, a–z, 0–9, точка, дефис, подчёркивание")
-			return
-		}
-		keys, _ := a.Store.WDTTKeys()
-		for _, k := range keys {
-			if k.Password == *body.Password {
-				apiError(w, 400, "этот пароль уже выдан как ключ доступа")
-				return
-			}
-		}
-		_ = a.Store.PutSecret("wdtt_password", *body.Password)
-	}
-	if body.VKHash != nil {
-		_ = a.Store.SetSetting("wdtt_vk_hash", hash)
-	}
-	_ = a.Store.SetSetting("wdtt_enabled", map[bool]string{true: "1", false: "0"}[body.Enabled])
-	_ = a.Store.SetSetting("wdtt_dtls_port", strconv.Itoa(body.DTLSPort))
-	_ = a.Store.SetSetting("wdtt_wg_port", strconv.Itoa(body.DTLSPort+1))
-	_ = a.Store.SetSetting("wdtt_dns", strings.ReplaceAll(body.DNS, " ", ""))
-	_ = a.Store.SetSetting("wdtt_mtu", strconv.Itoa(body.MTU))
-	if body.Rotate {
-		_ = a.Store.PutSecret("wdtt_password", spec.NewPassword(20))
-	}
-	a.queueEntry(w, r, s, "wdtt.update", fmt.Sprintf("enabled=%v port=%d", body.Enabled, body.DTLSPort))
-}
-
 func (a *App) putXUI(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	var body struct {
 		Enabled bool `json:"enabled"`
 		Route   bool `json:"route_via_chain"`
+		// PublicSub: nil keeps the current setting.
+		PublicSub *bool `json:"public_sub"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	_ = a.Store.SetSetting("xui_enabled", map[bool]string{true: "1", false: "0"}[body.Enabled])
 	_ = a.Store.SetSetting("xui_route", map[bool]string{true: "1", false: "0"}[body.Route])
+	if body.PublicSub != nil {
+		_ = a.Store.SetSetting("xui_public_sub", map[bool]string{true: "1", false: "0"}[*body.PublicSub])
+	}
 	if !body.Enabled {
 		for _, k := range []string{"XUI_USERNAME", "XUI_PASSWORD", "XUI_PANEL_PORT", "XUI_WEB_BASE_PATH"} {
 			_ = a.Store.DeleteSecret("xui:" + k)
 		}
 	}
-	a.queueEntry(w, r, s, "xui.update", fmt.Sprintf("enabled=%v route=%v", body.Enabled, body.Route))
+	a.queueEntry(w, r, s, "xui.update", fmt.Sprintf("enabled=%v route=%v public_sub=%v", body.Enabled, body.Route, a.Store.Setting("xui_public_sub", "0") == "1"))
 }
 
 func (a *App) queueEntry(w http.ResponseWriter, r *http.Request, s auth.Session, action, detail string) {

@@ -125,9 +125,10 @@ func RenderXray(s *spec.NodeSpec, meshIP string, ipv6 bool) ([]byte, error) {
 			"settings": obj{"auth": "password", "accounts": []obj{{"user": e.SocksUser, "pass": e.SocksPass}}, "udp": true, "ip": "127.0.0.1"},
 		}}
 		tags := []string{"local-in"}
-		if e.WDTT.Enabled {
+		if ws := e.WDTTServers(); len(ws) > 0 {
+			// Every WDTT server diverts its clients into this one inbound.
 			inbounds = append(inbounds, obj{
-				"tag": "wdtt-in", "listen": "127.0.0.1", "port": e.WDTT.TProxy, "protocol": "dokodemo-door",
+				"tag": "wdtt-in", "listen": "127.0.0.1", "port": ws[0].TProxy, "protocol": "dokodemo-door",
 				"settings":       obj{"network": "tcp,udp", "followRedirect": true},
 				"streamSettings": obj{"sockopt": obj{"tproxy": "tproxy"}},
 				"sniffing":       obj{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},

@@ -19,10 +19,60 @@ type EntrySettings struct {
 	WDTTMTU      int      `json:"wdtt_mtu"`
 	XUIEnabled   bool     `json:"xui_enabled"`
 	XUIRoute     bool     `json:"xui_route_via_chain"`
+	XUIPublicSub bool     `json:"xui_public_sub"`
 	PanelPort    int      `json:"panel_port"`
 	PanelAllow   []string `json:"panel_allow"`
 	// PanelMeshOnly: the panel is reachable only through Cloudflare Mesh.
 	PanelMeshOnly bool `json:"panel_mesh_only"`
+	// TurnVK is the second WDTT server, for the TurnVK client. The fields
+	// above starting with WDTT are the server for standard WDTT clients.
+	TurnVK WDTTServerSettings `json:"turnvk"`
+}
+
+// WDTTServerSettings are the settings of one WDTT server.
+type WDTTServerSettings struct {
+	Enabled  bool   `json:"enabled"`
+	DTLSPort int    `json:"dtls_port"`
+	WGPort   int    `json:"wg_port"`
+	DNS      string `json:"dns"`
+	MTU      int    `json:"mtu"`
+}
+
+// wdttKind describes one WDTT server in the panel's settings.
+type wdttKind struct {
+	ID      string
+	Label   string
+	prefix  string // of the settings: wdtt_enabled, wdtt_turnvk_enabled, ...
+	secret  string // owner password
+	defPort int
+}
+
+var wdttKinds = []wdttKind{
+	{ID: spec.WDTTStandard, Label: "стандартный клиент WDTT", prefix: "wdtt_", secret: "wdtt_password", defPort: 56000},
+	{ID: spec.WDTTTurnVK, Label: "клиент TurnVK", prefix: "wdtt_turnvk_", secret: "wdtt_turnvk_password", defPort: 56010},
+}
+
+func wdttKindOf(id string) (wdttKind, bool) {
+	if id == "" {
+		id = spec.WDTTStandard
+	}
+	for _, k := range wdttKinds {
+		if k.ID == id {
+			return k, true
+		}
+	}
+	return wdttKind{}, false
+}
+
+func (a *App) wdttSettings(k wdttKind) WDTTServerSettings {
+	port := atoi(a.Store.Setting(k.prefix+"dtls_port", strconv.Itoa(k.defPort)), k.defPort)
+	return WDTTServerSettings{
+		Enabled:  a.Store.Setting(k.prefix+"enabled", "0") == "1",
+		DTLSPort: port,
+		WGPort:   atoi(a.Store.Setting(k.prefix+"wg_port", strconv.Itoa(port+1)), port+1),
+		DNS:      a.Store.Setting(k.prefix+"dns", "1.1.1.1"),
+		MTU:      atoi(a.Store.Setting(k.prefix+"mtu", "1280"), 1280),
+	}
 }
 
 func atoi(s string, def int) int {
@@ -41,6 +91,7 @@ func (a *App) entrySettings() EntrySettings {
 		WDTTMTU:      atoi(a.Store.Setting("wdtt_mtu", "1280"), 1280),
 		XUIEnabled:   a.Store.Setting("xui_enabled", "0") == "1",
 		XUIRoute:     a.Store.Setting("xui_route", "1") == "1",
+		XUIPublicSub: a.Store.Setting("xui_public_sub", "0") == "1",
 		PanelPort:    a.PanelPort,
 		PanelAllow:   []string{},
 	}
@@ -50,6 +101,8 @@ func (a *App) entrySettings() EntrySettings {
 		}
 	}
 	s.PanelMeshOnly = a.Store.Setting("panel_mesh_only", "0") == "1"
+	tv, _ := wdttKindOf(spec.WDTTTurnVK)
+	s.TurnVK = a.wdttSettings(tv)
 	return s
 }
 
@@ -216,16 +269,31 @@ func (a *App) entrySpec(es EntrySettings) (*spec.EntrySpec, error) {
 	}
 	e := &spec.EntrySpec{Chain: []spec.OnionHop{}, SocksPort: port, SocksUser: user, SocksPass: pass,
 		XUI: spec.XUISpec{Enabled: es.XUIEnabled, RouteViaChain: es.XUIRoute}}
-	if es.WDTTEnabled {
-		wp, err := a.secret("wdtt_password", func() (string, error) { return spec.NewPassword(20), nil })
+	if es.XUIEnabled && es.XUIPublicSub {
+		e.XUI.PublicSub = true
+		if n, err := a.localNode(); err == nil {
+			e.XUI.SubHost = n.Host
+		}
+	}
+	for _, k := range wdttKinds {
+		ws := a.wdttSettings(k)
+		if !ws.Enabled {
+			continue
+		}
+		wp, err := a.secret(k.secret, func() (string, error) { return spec.NewPassword(20), nil })
 		if err != nil {
 			return nil, err
 		}
-		keys, err := a.wdttKeySpecs()
+		keys, err := a.wdttKeySpecs(k.ID)
 		if err != nil {
 			return nil, err
 		}
-		e.WDTT = spec.WDTTSpec{Enabled: true, DTLSPort: es.WDTTDTLSPort, WGPort: es.WDTTWGPort, Password: wp, DNS: es.WDTTDNS, TProxy: tproxy, Keys: keys, MTU: wdttMTU(es.WDTTMTU)}
+		w := spec.WDTTSpec{Enabled: true, DTLSPort: ws.DTLSPort, WGPort: ws.WGPort, Password: wp, DNS: ws.DNS, TProxy: tproxy, Keys: keys, MTU: wdttMTU(ws.MTU)}
+		if k.ID == spec.WDTTStandard {
+			e.WDTT = w
+		} else {
+			e.TurnVK = &w
+		}
 	}
 	return e, nil
 }

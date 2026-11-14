@@ -112,7 +112,34 @@ type EntrySpec struct {
 	SocksUser string     `json:"socks_user"`
 	SocksPass string     `json:"socks_pass"`
 	WDTT      WDTTSpec   `json:"wdtt"`
-	XUI       XUISpec    `json:"xui"`
+	// TurnVK is a second WDTT server, for the TurnVK client; nil when off.
+	TurnVK *WDTTSpec `json:"wdtt_turnvk,omitempty"`
+	XUI    XUISpec   `json:"xui"`
+}
+
+// WDTT client kinds: each kind has its own server on the entry node.
+const (
+	WDTTStandard = "standard"
+	WDTTTurnVK   = "turnvk"
+)
+
+// WDTTServers lists the enabled WDTT servers of an entry, standard first.
+func (e *EntrySpec) WDTTServers() []WDTTSpec {
+	var out []WDTTSpec
+	if e == nil {
+		return out
+	}
+	if e.WDTT.Enabled {
+		w := e.WDTT
+		w.Kind = WDTTStandard
+		out = append(out, w)
+	}
+	if e.TurnVK != nil && e.TurnVK.Enabled {
+		w := *e.TurnVK
+		w.Kind = WDTTTurnVK
+		out = append(out, w)
+	}
+	return out
 }
 
 // WDTTSpec controls the optional WDTT server.
@@ -125,9 +152,11 @@ type WDTTSpec struct {
 	TProxy   int    `json:"tproxy_port"`
 	// MTU of the tunnel sent to clients; 0 means the default (1280).
 	MTU int `json:"mtu,omitempty"`
-	// Keys are extra access passwords; each binds to the first device
-	// that connects with it. Password is the owner password.
+	// Keys are extra access passwords; each binds to the first devices
+	// that connect with it. Password is the owner password.
 	Keys []WDTTKey `json:"keys,omitempty"`
+	// Kind is set by WDTTServers; it is not part of the stored spec.
+	Kind string `json:"-"`
 }
 
 // WDTTKey is an access password of the WDTT server.
@@ -137,11 +166,22 @@ type WDTTKey struct {
 	ExpiresAt   int64  `json:"expires_at,omitempty"`
 	Disabled    bool   `json:"disabled,omitempty"`
 	DeviceEpoch int    `json:"device_epoch,omitempty"`
+	// MaxDevices is how many devices may use the key; 0 = no limit.
+	MaxDevices int `json:"max_devices,omitempty"`
+	// Unbind frees single devices bound no later than At (Unix seconds).
+	Unbind []WDTTUnbind `json:"unbind,omitempty"`
+}
+
+// WDTTUnbind frees one device of a key.
+type WDTTUnbind struct {
+	Device string `json:"device"`
+	At     int64  `json:"at"`
 }
 
 // WDTTRuntime is what the running WDTT server reports.
 type WDTTRuntime struct {
 	Version           string                    `json:"version"`
+	Kind              string                    `json:"kind,omitempty"`
 	StartedAt         int64                     `json:"started_at"`
 	UpdatedAt         int64                     `json:"updated_at"`
 	Sessions          int                       `json:"sessions"`
@@ -154,12 +194,33 @@ type WDTTRuntime struct {
 
 // WDTTKeyRuntime describes one password of the running server.
 type WDTTKeyRuntime struct {
+	Sessions int                 `json:"sessions"`
+	DeviceID string              `json:"device_id,omitempty"`
+	DeviceIP string              `json:"device_ip,omitempty"`
+	Up       int64               `json:"up_bytes"`
+	Down     int64               `json:"down_bytes"`
+	LastSeen int64               `json:"last_seen,omitempty"`
+	Devices  []WDTTDeviceRuntime `json:"devices,omitempty"`
+}
+
+// WDTTDeviceRuntime describes one device of a password.
+type WDTTDeviceRuntime struct {
+	ID       string `json:"id"`
+	IP       string `json:"ip"`
 	Sessions int    `json:"sessions"`
-	DeviceID string `json:"device_id,omitempty"`
-	DeviceIP string `json:"device_ip,omitempty"`
 	Up       int64  `json:"up_bytes"`
 	Down     int64  `json:"down_bytes"`
 	LastSeen int64  `json:"last_seen,omitempty"`
+	BoundAt  int64  `json:"bound_at,omitempty"`
+}
+
+// WDTTServerStatus is the state of the second (TurnVK) WDTT server; the
+// first one keeps its fields directly in Status.
+type WDTTServerStatus struct {
+	Installed bool         `json:"installed"`
+	Active    string       `json:"active"`
+	Iface     bool         `json:"iface"`
+	Runtime   *WDTTRuntime `json:"runtime,omitempty"`
 }
 
 // XUISpec controls the optional 3x-ui panel.
@@ -167,6 +228,10 @@ type XUISpec struct {
 	Enabled bool `json:"enabled"`
 	// RouteViaChain makes the chain the default outbound of 3x-ui.
 	RouteViaChain bool `json:"route_via_chain"`
+	// PublicSub opens the 3x-ui subscription server to the Internet;
+	// SubHost is the address its links carry.
+	PublicSub bool   `json:"public_sub,omitempty"`
+	SubHost   string `json:"sub_host,omitempty"`
 }
 
 // FirewallSpec is the input policy of the node. Everything not listed is
@@ -276,9 +341,18 @@ func (s *NodeSpec) Validate() error {
 		}
 	}
 	if e := s.Entry; e != nil {
-		if w := e.WDTT; w.Enabled {
+		servers := e.WDTTServers()
+		ports := map[int]bool{}
+		for _, w := range servers {
 			if !validPort(w.DTLSPort) || !validPort(w.WGPort) || !validPort(w.TProxy) || w.DTLSPort == w.WGPort || !rePass.MatchString(w.Password) {
 				return errors.New("invalid WDTT settings")
+			}
+			if ports[w.DTLSPort] {
+				return errors.New("the WDTT servers need different DTLS ports")
+			}
+			ports[w.DTLSPort] = true
+			if w.TProxy != servers[0].TProxy {
+				return errors.New("the WDTT servers must share the traffic port")
 			}
 			for _, d := range strings.Split(w.DNS, ",") {
 				if d != "" && net.ParseIP(strings.TrimSpace(d)) == nil {
@@ -291,7 +365,8 @@ func (s *NodeSpec) Validate() error {
 			ids := map[string]bool{"main": true}
 			pws := map[string]bool{w.Password: true}
 			for _, k := range w.Keys {
-				if !reKeyID.MatchString(k.ID) || ids[k.ID] || !rePass.MatchString(k.Password) || pws[k.Password] || k.DeviceEpoch < 0 {
+				if !reKeyID.MatchString(k.ID) || ids[k.ID] || !rePass.MatchString(k.Password) || pws[k.Password] || k.DeviceEpoch < 0 ||
+					k.MaxDevices < 0 || k.MaxDevices > 249 || len(k.Unbind) > 256 {
 					return fmt.Errorf("invalid WDTT key %q", k.ID)
 				}
 				ids[k.ID], pws[k.Password] = true, true
@@ -362,6 +437,8 @@ type Status struct {
 	WDTTIface     bool         `json:"wdtt_iface"`
 	WDTTPeers     int          `json:"wdtt_peers"`
 	WDTT          *WDTTRuntime `json:"wdtt,omitempty"`
+	// TurnVK is the WDTT server for the TurnVK client (nil if never set up).
+	TurnVK *WDTTServerStatus `json:"wdtt_turnvk,omitempty"`
 
 	XUIInstalled bool   `json:"xui_installed"`
 	XUIActive    string `json:"xui_active"`

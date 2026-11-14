@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
@@ -138,7 +139,11 @@ func reconcileXUI(ctx context.Context, e *spec.EntrySpec, changed *[]string, sec
 	}
 	defer db.Close()
 	dirty := false
-	for key, val := range map[string]string{"webListen": "127.0.0.1", "subListen": "127.0.0.1"} {
+	subListen := "127.0.0.1"
+	if e.XUI.PublicSub {
+		subListen = "" // all addresses
+	}
+	for key, val := range map[string]string{"webListen": "127.0.0.1", "subListen": subListen} {
 		cur, _, err := xuiSetting(db, key)
 		if err != nil {
 			return err
@@ -148,6 +153,16 @@ func reconcileXUI(ctx context.Context, e *spec.EntrySpec, changed *[]string, sec
 				return err
 			}
 			dirty = true
+		}
+	}
+	if d, err := reconcileXUISubURI(db, e.XUI); err != nil {
+		return err
+	} else if d {
+		dirty = true
+		if e.XUI.PublicSub {
+			*changed = append(*changed, "3x-ui: subscriptions open to the Internet")
+		} else {
+			*changed = append(*changed, "3x-ui: subscriptions local only")
 		}
 	}
 	tpl, ok, err := xuiSetting(db, "xrayTemplateConfig")
@@ -210,7 +225,117 @@ func normJSON(s string) string {
 	return string(b)
 }
 
-// XUIPorts lists the public ports of enabled 3x-ui inbounds.
+// xuiSubURIMarker remembers the subscription addresses the panel wrote into
+// 3x-ui, so it clears only its own values when subscriptions close again.
+var xuiSubURIMarker = VarDir + "/xui-sub-uri"
+
+func xuiSettingDef(db *sql.DB, key, def string) string {
+	if v, ok, _ := xuiSetting(db, key); ok && v != "" {
+		return v
+	}
+	return def
+}
+
+// reconcileXUISubURI points the subscription links 3x-ui shows at the
+// public address (3x-ui would build them from the address its web panel was
+// opened at, which is 127.0.0.1 through the SSH tunnel).
+func reconcileXUISubURI(db *sql.DB, x spec.XUISpec) (bool, error) {
+	want := map[string]string{"subURI": "", "subJsonURI": ""}
+	if x.PublicSub && x.SubHost != "" {
+		host := x.SubHost
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		base := "http://" + host + ":" + xuiSettingDef(db, "subPort", "2096")
+		want["subURI"] = base + xuiSettingDef(db, "subPath", "/sub/")
+		want["subJsonURI"] = base + xuiSettingDef(db, "subJsonPath", "/json/")
+	}
+	ours := map[string]string{}
+	if b, err := os.ReadFile(xuiSubURIMarker); err == nil {
+		_ = json.Unmarshal(b, &ours)
+	}
+	dirty := false
+	for key, val := range want {
+		cur, _, err := xuiSetting(db, key)
+		if err != nil {
+			return false, err
+		}
+		// A value the administrator set in 3x-ui (a domain behind a
+		// reverse proxy) is kept.
+		if cur == val || (cur != "" && cur != ours[key]) {
+			continue
+		}
+		if err := xuiPut(db, key, val); err != nil {
+			return false, err
+		}
+		dirty = true
+	}
+	if dirty {
+		b, _ := json.Marshal(want)
+		if err := os.WriteFile(xuiSubURIMarker, b, 0600); err != nil {
+			return false, err
+		}
+	}
+	return dirty, nil
+}
+
+// XUIProblems finds 3x-ui inbounds that accept clients but cannot carry
+// their traffic.
+func XUIProblems() []string {
+	if !xuiInstalled() {
+		return nil
+	}
+	db, err := openXUIDB()
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	return xuiProblems(db)
+}
+
+func xuiProblems(db *sql.DB) []string {
+	rows, err := db.Query(`SELECT COALESCE(remark,''), port, COALESCE(protocol,''), COALESCE(settings,''), COALESCE(stream_settings,'') FROM inbounds WHERE enable=1`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var remark, proto, settings, stream string
+		var port int
+		if rows.Scan(&remark, &port, &proto, &settings, &stream) != nil || proto != "vless" {
+			continue
+		}
+		var st struct {
+			Network string `json:"network"`
+		}
+		var cs struct {
+			Clients []struct {
+				Flow string `json:"flow"`
+			} `json:"clients"`
+		}
+		_ = json.Unmarshal([]byte(stream), &st)
+		_ = json.Unmarshal([]byte(settings), &cs)
+		if st.Network == "" || st.Network == "tcp" || st.Network == "raw" {
+			continue
+		}
+		for _, c := range cs.Clients {
+			if c.Flow != "" {
+				name := remark
+				if name == "" {
+					name = "без названия"
+				}
+				out = append(out, fmt.Sprintf("3x-ui: у подключения «%s» (порт %d) транспорт %s, а у клиентов задан Flow %s — он работает только с TCP: клиент подключится, но сайты открываться не будут. В настройках клиента выберите Flow «нет» или верните транспорт TCP (RAW)",
+					name, port, strings.ToUpper(st.Network), c.Flow))
+				break
+			}
+		}
+	}
+	return out
+}
+
+// XUIPorts lists the public ports of enabled 3x-ui inbounds and, when it
+// listens publicly, of the subscription server.
 func XUIPorts() []int {
 	if !xuiInstalled() {
 		return nil
@@ -220,6 +345,10 @@ func XUIPorts() []int {
 		return nil
 	}
 	defer db.Close()
+	return xuiPorts(db)
+}
+
+func xuiPorts(db *sql.DB) []int {
 	rows, err := db.Query(`SELECT port, COALESCE(listen,'') FROM inbounds WHERE enable=1`)
 	if err != nil {
 		return nil
@@ -232,10 +361,15 @@ func XUIPorts() []int {
 		if rows.Scan(&port, &listen) != nil || port < 1 || port > 65535 {
 			continue
 		}
-		if strings.HasPrefix(listen, "127.") || listen == "::1" || listen == "localhost" {
+		if isLoopback(listen) {
 			continue
 		}
 		seen[port] = true
+	}
+	if l, _, _ := xuiSetting(db, "subListen"); !isLoopback(l) && xuiSettingDef(db, "subEnable", "true") == "true" {
+		if p, err := strconv.Atoi(xuiSettingDef(db, "subPort", "2096")); err == nil && p > 0 && p < 65536 {
+			seen[p] = true
+		}
 	}
 	ports := []int{}
 	for p := range seen {
@@ -299,4 +433,8 @@ func redact(s string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func isLoopback(addr string) bool {
+	return strings.HasPrefix(addr, "127.") || addr == "::1" || addr == "localhost"
 }

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -16,6 +17,19 @@ type WDTTKey struct {
 	Disabled    bool   `json:"disabled"`
 	DeviceEpoch int    `json:"-"`
 	CreatedAt   string `json:"created_at"`
+	// Kind is the WDTT server the key belongs to: "standard" or "turnvk".
+	Kind string `json:"kind"`
+	// MaxDevices is how many devices may use the key; 0 = no limit.
+	MaxDevices int `json:"max_devices"`
+	// Unbind lists devices the administrator removed from the key.
+	Unbind []WDTTUnbind `json:"-"`
+}
+
+// WDTTUnbind frees one device of a key: the server forgets the device if
+// it was bound no later than At.
+type WDTTUnbind struct {
+	Device string `json:"device"`
+	At     int64  `json:"at"`
 }
 
 // ErrNotFound is returned for a missing record.
@@ -23,7 +37,7 @@ var ErrNotFound = errors.New("not found")
 
 // WDTTKeys lists the access keys, oldest first.
 func (s *Store) WDTTKeys() ([]WDTTKey, error) {
-	rows, err := s.DB.Query(`SELECT id, name, password_cipher, vk_hash, expires_at, disabled, device_epoch, created_at FROM wdtt_keys ORDER BY created_at, id`)
+	rows, err := s.DB.Query(`SELECT id, name, password_cipher, vk_hash, expires_at, disabled, device_epoch, created_at, kind, max_devices, unbind FROM wdtt_keys ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -31,10 +45,11 @@ func (s *Store) WDTTKeys() ([]WDTTKey, error) {
 	out := []WDTTKey{}
 	for rows.Next() {
 		var k WDTTKey
-		var enc string
-		if err := rows.Scan(&k.ID, &k.Name, &enc, &k.VKHash, &k.ExpiresAt, &k.Disabled, &k.DeviceEpoch, &k.CreatedAt); err != nil {
+		var enc, unbind string
+		if err := rows.Scan(&k.ID, &k.Name, &enc, &k.VKHash, &k.ExpiresAt, &k.Disabled, &k.DeviceEpoch, &k.CreatedAt, &k.Kind, &k.MaxDevices, &unbind); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(unbind), &k.Unbind)
 		if k.Password, err = s.OpenSecret(enc); err != nil {
 			return nil, err
 		}
@@ -66,11 +81,19 @@ func (s *Store) PutWDTTKey(k WDTTKey) error {
 	if k.CreatedAt == "" {
 		k.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	_, err = s.DB.Exec(`INSERT INTO wdtt_keys (id, name, password_cipher, vk_hash, expires_at, disabled, device_epoch, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	if k.Kind == "" {
+		k.Kind = "standard"
+	}
+	if k.Unbind == nil {
+		k.Unbind = []WDTTUnbind{}
+	}
+	unbind, _ := json.Marshal(k.Unbind)
+	_, err = s.DB.Exec(`INSERT INTO wdtt_keys (id, name, password_cipher, vk_hash, expires_at, disabled, device_epoch, created_at, kind, max_devices, unbind)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, password_cipher=excluded.password_cipher, vk_hash=excluded.vk_hash,
- expires_at=excluded.expires_at, disabled=excluded.disabled, device_epoch=excluded.device_epoch`,
-		k.ID, k.Name, enc, k.VKHash, k.ExpiresAt, k.Disabled, k.DeviceEpoch, k.CreatedAt)
+ expires_at=excluded.expires_at, disabled=excluded.disabled, device_epoch=excluded.device_epoch,
+ max_devices=excluded.max_devices, unbind=excluded.unbind`,
+		k.ID, k.Name, enc, k.VKHash, k.ExpiresAt, k.Disabled, k.DeviceEpoch, k.CreatedAt, k.Kind, k.MaxDevices, string(unbind))
 	return err
 }
 

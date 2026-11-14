@@ -37,7 +37,7 @@ func TestRestoreKeepsOldFiles(t *testing.T) {
 	panel, wdtt := filepath.Join(dir, "panel"), filepath.Join(dir, "wdtt")
 	_ = os.MkdirAll(panel, 0700)
 	_ = os.WriteFile(filepath.Join(panel, "state.db"), []byte("old"), 0600)
-	if err := Restore([]Entry{{Name: "panel/state.db", Data: []byte("new")}, {Name: "wdtt/state.json", Data: []byte("{}")}}, panel, wdtt); err != nil {
+	if err := Restore([]Entry{{Name: "panel/state.db", Data: []byte("new")}, {Name: "wdtt/state.json", Data: []byte("{}")}}, panel, map[string]string{"wdtt": wdtt}); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(panel, "state.db")); string(b) != "new" {

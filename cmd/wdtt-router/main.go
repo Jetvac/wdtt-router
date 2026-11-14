@@ -210,7 +210,7 @@ func restore(ctx context.Context, args []string) error {
 	for _, unit := range []string{"wdtt-router", "wdtt-router-wdtt"} {
 		_ = exec.CommandContext(ctx, "systemctl", "stop", unit).Run()
 	}
-	if err := backup.Restore(entries, *data, agent.WDTTDataDir); err != nil {
+	if err := backup.Restore(entries, *data, agent.WDTTDataDirs()); err != nil {
 		return err
 	}
 	if *host != "" {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -175,7 +176,7 @@ func startServer(t *testing.T, cfg Config) (*Server, *fakePeers, string, func())
 	path := filepath.Join(dir, "wdtt.json")
 	writeCfg(t, path, cfg)
 	fp := &fakePeers{}
-	s := NewServer(path, func(*bind, string, int) (Peers, error) { return fp, nil })
+	s := NewServer(path, func(*bind, PeerOptions) (Peers, error) { return fp, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -197,7 +198,7 @@ func writeCfg(t *testing.T, path string, cfg Config) {
 
 func TestServerProtocol(t *testing.T) {
 	cfg := Config{MainPassword: "owner-pass", DNS: "1.1.1.1", Keys: []Key{
-		{ID: "k1", Password: "guest-pass"},
+		{ID: "k1", Password: "guest-pass", MaxDevices: 1},
 		{ID: "k2", Password: "old-pass", ExpiresAt: time.Now().Add(-time.Hour).Unix()},
 	}}
 	s, peers, addr, stop := startServer(t, cfg)
@@ -285,7 +286,7 @@ func TestServerProtocol(t *testing.T) {
 	}
 	g.close()
 
-	// Generated keys bind to the first device.
+	// A key with one device slot binds to the first device.
 	g, _ = dialClient(t, addr, "guest-pass")
 	if r := g.ask(t, "GETCONF:9000|tab-1|guest-pass"); !strings.Contains(r, "10.66.66.3/32") {
 		t.Fatal(r)
@@ -386,11 +387,11 @@ func TestMigrationFromOriginal(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "wg-keys.dat"), []byte(priv+"\n"+pub+"\nx\ny\n"), 0600)
 	old := `{"main_password":"p","passwords":{},"devices":{"dev-a":{"device_id":"dev-a","ip":"10.66.66.7","priv_key":"` + cpriv + `","pub_key":"` + cpub + `"}}}`
 	os.WriteFile(filepath.Join(dir, "passwords.json"), []byte(old), 0600)
-	st, migrated, err := loadState(dir)
+	st, migrated, err := loadState(dir, "10.66.66.")
 	if err != nil || !migrated || st.ServerPrivate != priv || st.Devices["dev-a"].IP != "10.66.66.7" {
 		t.Fatalf("migration: %v %v %+v", err, migrated, st)
 	}
-	if ip := st.freeIP(); ip != "10.66.66.2" {
+	if ip := st.freeIP("10.66.66."); ip != "10.66.66.2" {
 		t.Fatal(ip)
 	}
 }
@@ -523,5 +524,134 @@ func TestResetAfterCrash(t *testing.T) {
 	m, err := open(a, buf[:n], out)
 	if err != nil || m < 13 || out[0] != 21 || out[3] != 0 || out[4] != 0 {
 		t.Fatalf("not a wrapped epoch-0 alert: %v % x", err, out[:m])
+	}
+}
+
+// connect opens a session with password and sends GETCONF for dev.
+func connect(t *testing.T, addr, password, dev string) string {
+	t.Helper()
+	c, err := dialClient(t, addr, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.close()
+	return c.ask(t, "GETCONF:9000|"+dev+"|"+password)
+}
+
+func TestDeviceLimits(t *testing.T) {
+	cfg := Config{DNS: "1.1.1.1", Kind: KindTurnVK, Iface: "wdtt1", Network: "10.66.67.0/24", Keys: []Key{
+		{ID: "two", Password: "two-pass", MaxDevices: 2},
+		{ID: "any", Password: "any-pass"},
+	}}
+	s, peers, addr, stop := startServer(t, cfg)
+	defer stop()
+
+	// The second network and the server address come from the config.
+	if r := connect(t, addr, "two-pass", "a"); !strings.Contains(r, "Address = 10.66.67.2/32") {
+		t.Fatal(r)
+	}
+	if r := connect(t, addr, "two-pass", "b"); !strings.Contains(r, "10.66.67.3/32") {
+		t.Fatal(r)
+	}
+	if r := connect(t, addr, "two-pass", "c"); r != "DENIED:device_mismatch" {
+		t.Fatalf("third device on a two-device key: %q", r)
+	}
+	// Known devices keep connecting.
+	if r := connect(t, addr, "two-pass", "a"); !strings.Contains(r, "10.66.67.2/32") {
+		t.Fatal(r)
+	}
+	// No limit.
+	for i := 0; i < 5; i++ {
+		if r := connect(t, addr, "any-pass", fmt.Sprintf("u%d", i)); !strings.Contains(r, "[Interface]") {
+			t.Fatal(r)
+		}
+	}
+	if peers.n() != 7 {
+		t.Fatalf("peers = %d", peers.n())
+	}
+
+	// Unbinding one device frees its slot and its address; the other stays.
+	cfg.Keys[0].Unbind = []Unbind{{Device: "a", At: time.Now().Unix()}}
+	writeCfg(t, s.cfgPath, withRuntime(cfg, s.cfg))
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if peers.n() != 6 {
+		t.Fatalf("peers after unbind = %d", peers.n())
+	}
+	if r := connect(t, addr, "two-pass", "c"); !strings.Contains(r, "[Interface]") {
+		t.Fatalf("freed slot: %q", r)
+	}
+	// The unbind entry stays in the config but does not touch "c", bound later
+	// (same second is "no later", so wait for the next one first).
+	time.Sleep(1100 * time.Millisecond)
+	cfg.Keys[0].Unbind = []Unbind{{Device: "a", At: time.Now().Unix()}}
+	writeCfg(t, s.cfgPath, withRuntime(cfg, s.cfg))
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if r := connect(t, addr, "two-pass", "a"); r != "DENIED:device_mismatch" {
+		t.Fatalf("slots b and c are taken: %q", r)
+	}
+
+	s.mu.Lock()
+	st := s.statusLocked()
+	s.mu.Unlock()
+	if st.Kind != KindTurnVK || len(st.Keys["two"].Devices) != 2 || len(st.Keys["any"].Devices) != 5 {
+		t.Fatalf("status: %+v", st)
+	}
+	for _, d := range st.Keys["two"].Devices {
+		if d.ID == "a" || d.BoundAt == 0 || d.IP == "" {
+			t.Fatalf("device: %+v", d)
+		}
+	}
+
+	// Resetting the epoch unbinds every device of the key.
+	cfg.Keys[0].DeviceEpoch = 1
+	writeCfg(t, s.cfgPath, withRuntime(cfg, s.cfg))
+	if err := s.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	n := len(s.st.Keys["two"].Devices)
+	s.mu.Unlock()
+	if n != 0 || peers.n() != 5 {
+		t.Fatalf("after reset: %d devices, %d peers", n, peers.n())
+	}
+}
+
+// A state file of 1.2 keeps a single device per key; it becomes the
+// key's first device.
+func TestLegacyKeyState(t *testing.T) {
+	dir := t.TempDir()
+	priv, pub, _ := newKeyPair()
+	cpriv, cpub, _ := newKeyPair()
+	old := `{"server_private":"` + priv + `","server_public":"` + pub + `","devices":{"tab":{"ip":"10.66.66.9","private_key":"` + cpriv + `","public_key":"` + cpub + `"}},"keys":{"k1":{"device_id":"tab","up_bytes":5,"down_bytes":7}}}`
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0600)
+	st, _, err := loadState(dir, "10.66.66.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := st.Keys["k1"]
+	if k.DeviceID != "" || len(k.Devices) != 1 || k.Devices[0].ID != "tab" || k.Up != 5 {
+		t.Fatalf("%+v", k)
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	for _, c := range []Config{
+		{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", MainPassword: "p", Kind: "other"},
+		{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", MainPassword: "p", Network: "10.66.67.0/16"},
+		{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", MainPassword: "p", Network: "10.66.67.5/24"},
+		{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", MainPassword: "p", Iface: "wdtt 1"},
+		{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", Keys: []Key{{ID: "a", Password: "x", MaxDevices: -1}}},
+	} {
+		if c.Validate() == nil {
+			t.Fatalf("accepted %+v", c)
+		}
+	}
+	ok := Config{Listen: ":1", DataDir: "d", DNS: "1.1.1.1", MainPassword: "p", Kind: KindTurnVK, Iface: "wdtt1", Network: "10.66.67.0/24"}
+	if err := ok.Validate(); err != nil || ok.ServerAddr() != "10.66.67.1" {
+		t.Fatal(err, ok.ServerAddr())
 	}
 }

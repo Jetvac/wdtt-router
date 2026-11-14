@@ -23,7 +23,7 @@ const (
 // FirewallInputs are values discovered on the host that shape the ruleset.
 type FirewallInputs struct {
 	HopPort  int
-	WDTT     *spec.WDTTSpec
+	WDTT     []spec.WDTTSpec // enabled WDTT servers (EntrySpec.WDTTServers)
 	XUIPorts []int
 }
 
@@ -77,11 +77,17 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 	b.WriteString("\t\tiif \"lo\" accept\n")
 	b.WriteString("\t\tct state established,related accept\n")
 	b.WriteString("\t\tct state invalid drop\n")
-	if in.WDTT != nil {
+	var wdttIfaces []string
+	var wdttPorts []int
+	for _, w := range in.WDTT {
+		wdttIfaces = append(wdttIfaces, `"`+WDTTServerOf(w.Kind).Iface+`"`)
+		wdttPorts = append(wdttPorts, w.DTLSPort)
+	}
+	if len(wdttIfaces) > 0 {
 		// Only packets diverted by TPROXY may enter from WDTT clients; the
 		// clients cannot reach services of the host itself.
-		b.WriteString("\t\tiifname \"wdtt0\" meta mark 0x00000001 accept\n")
-		b.WriteString("\t\tiifname \"wdtt0\" drop\n")
+		fmt.Fprintf(&b, "\t\tiifname { %s } meta mark 0x00000001 accept\n", strings.Join(wdttIfaces, ", "))
+		fmt.Fprintf(&b, "\t\tiifname { %s } drop\n", strings.Join(wdttIfaces, ", "))
 	}
 	// Mesh: only SSH and the hop port, only from Mesh addresses.
 	mesh := []int{f.SSHPort}
@@ -104,8 +110,8 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 	if f.PanelPort > 0 && !f.PanelMeshOnly {
 		allowRule(&b, fmt.Sprintf("tcp dport %d", f.PanelPort), f.PanelAllow)
 	}
-	if in.WDTT != nil {
-		fmt.Fprintf(&b, "\t\tudp dport %d accept\n", in.WDTT.DTLSPort)
+	if len(wdttPorts) > 0 {
+		fmt.Fprintf(&b, "\t\tudp dport { %s } accept\n", joinPorts(wdttPorts))
 	}
 	if len(in.XUIPorts) > 0 {
 		fmt.Fprintf(&b, "\t\tmeta l4proto { tcp, udp } th dport { %s } accept\n", joinPorts(in.XUIPorts))

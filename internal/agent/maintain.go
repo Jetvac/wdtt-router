@@ -24,7 +24,7 @@ func Maintain(ctx context.Context) error {
 	if err != nil || s.Entry == nil {
 		return nil
 	}
-	if s.Entry.WDTT.Enabled && !tproxyRoutingPresent(ctx) {
+	if len(s.Entry.WDTTServers()) > 0 && !tproxyRoutingPresent(ctx) {
 		Logf("restoring WDTT policy routing")
 		if err := applyTProxyRouting(ctx); err != nil {
 			return err
@@ -33,11 +33,7 @@ func Maintain(ctx context.Context) error {
 	if !s.Firewall.Enabled || !s.Entry.XUI.Enabled || revertPending() || firewallReverted() {
 		return nil
 	}
-	in := FirewallInputs{XUIPorts: XUIPorts()}
-	if s.Entry.WDTT.Enabled {
-		w := s.Entry.WDTT
-		in.WDTT = &w
-	}
+	in := FirewallInputs{XUIPorts: XUIPorts(), WDTT: s.Entry.WDTTServers()}
 	// Only 3x-ui ports can differ from the confirmed rules here, so no
 	// dead-man confirmation is needed.
 	script := RenderFirewall(s.Firewall, in)

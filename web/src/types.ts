@@ -29,6 +29,7 @@ export interface Status {
   wdtt_iface: boolean
   wdtt_peers: number
   wdtt?: WDTTRuntime
+  wdtt_turnvk?: { installed: boolean; active: string; iface: boolean; runtime?: WDTTRuntime }
   xui_installed: boolean
   xui_active: string
   xui_ports: number[] | null
@@ -114,9 +115,23 @@ export interface EntrySettings {
   wdtt_mtu?: number
   xui_enabled: boolean
   xui_route_via_chain: boolean
+  xui_public_sub?: boolean
   panel_port: number
   panel_allow: string[]
+  turnvk: WDTTServerSettings
 }
+
+export interface WDTTServerSettings {
+  enabled: boolean
+  dtls_port: number
+  wg_port: number
+  dns: string
+  mtu: number
+}
+
+/** The two WDTT servers: one for standard WDTT clients, one for TurnVK. */
+export type WDTTKind = 'standard' | 'turnvk'
+
 
 export interface Overview {
   nodes: NodeView[]
@@ -139,6 +154,16 @@ export interface Check {
   fix_arg?: string
 }
 
+export interface WDTTDevice {
+  id: string
+  ip: string
+  sessions: number
+  up_bytes: number
+  down_bytes: number
+  last_seen?: number
+  bound_at?: number
+}
+
 export interface WDTTKeyRuntime {
   sessions: number
   device_id?: string
@@ -146,6 +171,7 @@ export interface WDTTKeyRuntime {
   up_bytes: number
   down_bytes: number
   last_seen?: number
+  devices?: WDTTDevice[]
 }
 
 export interface WDTTRuntime {
@@ -167,6 +193,9 @@ export interface WDTTKey {
   disabled: boolean
   created_at: string
   state: 'active' | 'disabled' | 'expired'
+  kind: WDTTKind
+  max_devices: number
+  devices: WDTTDevice[]
   device_id: string
   device_ip: string
   sessions: number
@@ -175,20 +204,42 @@ export interface WDTTKey {
   last_seen: number
 }
 
+export interface WDTTRuntimeView {
+  sessions: number
+  devices: number
+  version: string
+  started_at: number
+  updated_at: number
+  auth_failures: number
+  handshake_failures: number
+  main?: WDTTKeyRuntime
+}
+
+export interface WDTTServerView {
+  kind: WDTTKind
+  label: string
+  enabled: boolean
+  dtls_port: number
+  main_vk_hash: string
+  runtime?: WDTTRuntimeView
+  main?: WDTTKeyRuntime
+}
+
+/** A device of any key (or of the owner password, key_id "main"). */
+export interface WDTTDeviceRow extends WDTTDevice {
+  kind: WDTTKind
+  key_id: string
+  key_name: string
+}
+
 export interface WDTTKeysData {
   keys: WDTTKey[]
   limit: number
+  max_devices: number
+  servers: Record<WDTTKind, WDTTServerView>
+  devices: WDTTDeviceRow[]
   main_vk_hash: string
-  runtime?: {
-    sessions: number
-    devices: number
-    version: string
-    started_at: number
-    updated_at: number
-    auth_failures: number
-    handshake_failures: number
-    main?: WDTTKeyRuntime
-  }
+  runtime?: WDTTRuntimeView
 }
 
 export interface WDTTLink {
@@ -196,4 +247,6 @@ export interface WDTTLink {
   host: string
   port: string
   link?: string
+  kind: WDTTKind
+  client: string
 }

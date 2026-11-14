@@ -66,12 +66,13 @@ func (a *App) recentEvents(limit int) []Event {
 
 // monitor turns state changes seen by the status refresher into events.
 type monitor struct {
-	mu        sync.Mutex
-	fails     map[int64]int
-	offline   map[int64]time.Time
-	wdttDown  bool
-	chainDown bool
-	round     int
+	mu         sync.Mutex
+	fails      map[int64]int
+	offline    map[int64]time.Time
+	wdttDown   bool
+	turnvkDown bool
+	chainDown  bool
+	round      int
 }
 
 // offlineAfter: consecutive failed status checks (one a minute) before a
@@ -118,6 +119,17 @@ func (a *App) observe(ctx context.Context, n Node, err error) {
 				a.event(EventWDTT, "🔴 Сервер WDTT остановлен (%s)", n.Status.WDTTActive)
 			} else {
 				a.event(EventWDTT, "🟢 Сервер WDTT снова работает")
+			}
+		}
+	}
+	if tv := n.Status.TurnVK; n.Local && a.entrySettings().TurnVK.Enabled && tv != nil && tv.Installed {
+		down := tv.Active != "active"
+		if down != m.turnvkDown {
+			m.turnvkDown = down
+			if down {
+				a.event(EventWDTT, "🔴 Сервер WDTT для клиента TurnVK остановлен (%s)", tv.Active)
+			} else {
+				a.event(EventWDTT, "🟢 Сервер WDTT для клиента TurnVK снова работает")
 			}
 		}
 	}
@@ -523,6 +535,21 @@ func (a *App) statusSummary() string {
 				fmt.Fprintf(&b, "WDTT: 🟢 работает, сессий %d, ключей в сети %d\n", rt.Sessions, online)
 			} else {
 				fmt.Fprintf(&b, "WDTT: 🔴 %s\n", n.Status.WDTTActive)
+			}
+		}
+	}
+	if a.entrySettings().TurnVK.Enabled {
+		for _, n := range nodes {
+			if !n.Local {
+				continue
+			}
+			switch tv := n.Status.TurnVK; {
+			case tv != nil && tv.Active == "active" && tv.Runtime != nil:
+				fmt.Fprintf(&b, "WDTT для TurnVK: 🟢 работает, сессий %d\n", tv.Runtime.Sessions)
+			case tv != nil:
+				fmt.Fprintf(&b, "WDTT для TurnVK: 🔴 %s\n", tv.Active)
+			default:
+				fmt.Fprintf(&b, "WDTT для TurnVK: 🔴 не установлен\n")
 			}
 		}
 	}

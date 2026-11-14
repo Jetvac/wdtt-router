@@ -195,14 +195,17 @@ func (b *bind) newestFor(dev string) string {
 	return best.ep.addr.String()
 }
 
-func (b *bind) count() (total int, byKey map[string]int) {
-	byKey = map[string]int{}
+func (b *bind) count() (total int, byKey, byDev map[string]int) {
+	byKey, byDev = map[string]int{}, map[string]int{}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for s := range b.sessions {
 		byKey[s.keyID]++
+		if s.dev != "" {
+			byDev[s.dev]++
+		}
 	}
-	return len(b.sessions), byKey
+	return len(b.sessions), byKey, byDev
 }
 
 // endpoint identifies a session to WireGuard.

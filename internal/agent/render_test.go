@@ -125,16 +125,15 @@ func TestFirewallClosedSSH(t *testing.T) {
 
 func TestFirewallEntry(t *testing.T) {
 	f := spec.FirewallSpec{Enabled: true, SSHPort: 22, SSHPublic: true, SSHAllow: []string{"203.0.113.5", "2001:db8::/32"}, PanelPort: 8443}
-	w := spec.WDTTSpec{DTLSPort: 56000}
-	r := RenderFirewall(f, FirewallInputs{WDTT: &w, XUIPorts: []int{443}})
+	r := RenderFirewall(f, FirewallInputs{WDTT: []spec.WDTTSpec{{DTLSPort: 56000, Kind: spec.WDTTStandard}, {DTLSPort: 56010, Kind: spec.WDTTTurnVK}}, XUIPorts: []int{443}})
 	for _, want := range []string{
 		"ip saddr { 203.0.113.5 } tcp dport 22 accept",
 		"ip6 saddr { 2001:db8::/32 } tcp dport 22 accept",
 		"update @ssh_flood4",
 		"tcp dport 8443 accept",
-		"udp dport 56000 accept",
+		"udp dport { 56000, 56010 } accept",
 		"th dport { 443 } accept",
-		`iifname "wdtt0" meta mark 0x00000001 accept`,
+		`iifname { "wdtt0", "wdtt1" } meta mark 0x00000001 accept`,
 	} {
 		if !strings.Contains(r, want) {
 			t.Fatalf("missing %q in\n%s", want, r)
@@ -172,9 +171,12 @@ func TestPatchTemplateIdempotent(t *testing.T) {
 }
 
 func TestTProxyScriptKillSwitch(t *testing.T) {
-	s := tproxyScript(30001)
-	if !strings.Contains(s, `iifname "wdtt0" drop`) || !strings.Contains(s, `oifname "wdtt0" drop`) {
+	s := tproxyScript(30001, WDTTServers)
+	if !strings.Contains(s, `iifname { "wdtt0", "wdtt1" } drop`) || !strings.Contains(s, `oifname { "wdtt0", "wdtt1" } drop`) {
 		t.Fatal("forwarding from WDTT clients must be dropped")
+	}
+	if !strings.Contains(s, "ip daddr { 10.66.66.1, 10.66.67.1, ") {
+		t.Fatal("the servers' own addresses must not be diverted")
 	}
 	if !strings.Contains(s, "tproxy ip to 127.0.0.1:30001") {
 		t.Fatal("client traffic must be diverted to Xray")
@@ -196,10 +198,36 @@ func TestWDTTConfigAccepted(t *testing.T) {
 	if c.Listen != "0.0.0.0:56000" || c.MainPassword != w.Password || len(c.Keys) != 1 || c.Keys[0].DeviceEpoch != 2 || c.DNS != "1.1.1.1" {
 		t.Fatalf("%+v", c)
 	}
-	unit := wdttUnitText()
-	for _, want := range []string{"wdtt-server --config " + WDTTConfigPath, "CapabilityBoundingSet=CAP_NET_ADMIN", "ExecReload=", "ExecStartPre=+"} {
+	if c.Kind != wdtt.KindStandard || c.Iface != "wdtt0" || c.Network != "10.66.66.0/24" || c.DataDir != WDTTDataDir {
+		t.Fatalf("standard server: %+v", c)
+	}
+	unit := wdttUnitText(WDTTServers[0])
+	for _, want := range []string{"wdtt-server --config " + WDTTConfigPath, "CapabilityBoundingSet=CAP_NET_ADMIN", "ExecReload=", "ExecStartPre=+", "ip link del wdtt0"} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("unit lacks %q", want)
+		}
+	}
+
+	// The TurnVK server: own files, interface and network, same protocol.
+	w.Kind = spec.WDTTTurnVK
+	w.Keys[0].MaxDevices = 3
+	w.Keys[0].Unbind = []spec.WDTTUnbind{{Device: "phone", At: 1800000000}}
+	if err := os.WriteFile(p, renderWDTTConfig(w), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = wdtt.LoadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tv := WDTTServerOf(spec.WDTTTurnVK)
+	if c.Kind != wdtt.KindTurnVK || c.Iface != "wdtt1" || c.Network != "10.66.67.0/24" || c.DataDir != tv.Data || c.StatusFile != tv.Status ||
+		c.Keys[0].MaxDevices != 3 || len(c.Keys[0].Unbind) != 1 || c.Keys[0].Unbind[0].At != 1800000000 {
+		t.Fatalf("turnvk server: %+v", c)
+	}
+	unit = wdttUnitText(tv)
+	for _, want := range []string{"wdtt-server --config " + tv.Config, "ip link del wdtt1", "ReadWritePaths=" + tv.Data, "TurnVK"} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("turnvk unit lacks %q", want)
 		}
 	}
 }

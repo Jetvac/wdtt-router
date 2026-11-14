@@ -150,20 +150,30 @@ func Inspect(ctx context.Context) spec.Status {
 	if firewallReverted() {
 		s.Problems = append(s.Problems, "firewall change was automatically reverted after a lost connection")
 	}
-	s.WDTTInstalled = exists("/etc/systemd/system/" + wdttUnit)
-	s.WDTTActive = unitState(wdttUnit)
-	_, err := net.InterfaceByName(WDTTIface)
+	std := WDTTServerOf(spec.WDTTStandard)
+	s.WDTTInstalled = exists("/etc/systemd/system/" + std.Unit)
+	s.WDTTActive = unitState(std.Unit)
+	_, err := net.InterfaceByName(std.Iface)
 	s.WDTTIface = err == nil
 	if s.WDTTInstalled {
-		if r := wdttRuntime(); r != nil {
+		if r := wdttRuntime(std); r != nil {
 			s.WDTT = r
 			s.WDTTPeers = r.Devices
 		}
+	}
+	tv := WDTTServerOf(spec.WDTTTurnVK)
+	if exists("/etc/systemd/system/" + tv.Unit) {
+		ts := &spec.WDTTServerStatus{Installed: true, Active: unitState(tv.Unit)}
+		_, err := net.InterfaceByName(tv.Iface)
+		ts.Iface = err == nil
+		ts.Runtime = wdttRuntime(tv)
+		s.TurnVK = ts
 	}
 	s.XUIInstalled = xuiInstalled()
 	if s.XUIInstalled {
 		s.XUIActive = unitState("x-ui.service")
 		s.XUIPorts = XUIPorts()
+		s.Problems = append(s.Problems, XUIProblems()...)
 	}
 
 	if s.MemAvailMB > 0 && s.MemAvailMB < 80 {

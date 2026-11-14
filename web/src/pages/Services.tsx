@@ -3,9 +3,9 @@ import { Alert, App, Button, Card, Col, Descriptions, Form, Input, InputNumber, 
 import { EyeOutlined, KeyOutlined, LinkOutlined } from '@ant-design/icons'
 import { get, post, put } from '../api'
 import { useJobs } from '../components/Jobs'
-import { LinkModal, useWDTTKeys } from '../components/WDTTKeys'
+import { KindTag, LinkModal, useWDTTKeys, wdttKinds } from '../components/WDTTKeys'
 import { navigate } from '../App'
-import type { EntrySettings, Status, WDTTKeysData } from '../types'
+import type { EntrySettings, Status, WDTTKeysData, WDTTKind, WDTTServerSettings } from '../types'
 import { fmtBytes, usePoll } from '../util'
 
 export interface ServicesData {
@@ -26,7 +26,7 @@ export default function Services() {
   useEffect(() => {
     reload()
   }, [version, reload])
-  const keys = useWDTTKeys(!!data?.settings.wdtt_enabled)
+  const keys = useWDTTKeys(!!data?.settings.wdtt_enabled || !!data?.settings.turnvk?.enabled)
   if (!data) return <Card loading />
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
@@ -40,16 +40,19 @@ export default function Services() {
         <Col xs={24} xl={12}>
           <Card
             title={
-              <Space>
+              <Space wrap>
                 WDTT
+                <KindTag kind="standard" />
                 <StateTag installed={data.status.wdtt_installed} active={data.status.wdtt_active} />
+                <KindTag kind="turnvk" />
+                <StateTag installed={!!data.status.wdtt_turnvk?.installed} active={data.status.wdtt_turnvk?.active} />
               </Space>
             }
             extra={<Button type="primary" onClick={() => navigate('/wdtt')}>Открыть</Button>}
           >
             <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              WireGuard через TURN-серверы VK для клиентов WDTT. Настройки сервера, ключи доступа, ссылки и QR-коды — на странице WDTT.
-              {keys.data ? ` Ключей: ${keys.data.keys.length}.` : ''}
+              WireGuard через TURN-серверы VK. Два независимых сервера: для стандартного приложения WDTT и для нашего клиента TurnVK — включайте любой или оба. Настройки, ключи доступа, устройства, ссылки и QR-коды — на странице WDTT.
+              {keys.data ? ` Ключей: ${keys.data.keys.length}, устройств: ${keys.data.devices?.length ?? 0}.` : ''}
             </Typography.Paragraph>
           </Card>
         </Col>
@@ -74,26 +77,35 @@ function useQueue(reload: () => void) {
   }
 }
 
-export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDTTKeysData | null; reload: () => void }) {
-  const s = data.settings
+/** Settings of one WDTT server: the one for standard WDTT clients or the
+ * one for the TurnVK client. */
+export function WDTTCard({ data, kind, keys, reload }: { data: ServicesData; kind: WDTTKind; keys: WDTTKeysData | null; reload: () => void }) {
   const st = data.status
-  const rt = keys?.runtime
+  const s: WDTTServerSettings =
+    kind === 'turnvk'
+      ? data.settings.turnvk
+      : { enabled: data.settings.wdtt_enabled, dtls_port: data.settings.wdtt_dtls_port, wg_port: data.settings.wdtt_wg_port, dns: data.settings.wdtt_dns, mtu: data.settings.wdtt_mtu || 1280 }
+  const installed = kind === 'turnvk' ? !!st.wdtt_turnvk?.installed : st.wdtt_installed
+  const active = kind === 'turnvk' ? st.wdtt_turnvk?.active : st.wdtt_active
+  const server = keys?.servers?.[kind]
+  const rt = server?.runtime
   const [form] = Form.useForm()
   const [linkOpen, setLinkOpen] = useState(false)
   const [ownerOpen, setOwnerOpen] = useState(false)
   const [ownerForm] = Form.useForm()
   const queue = useQueue(reload)
-  const mainHash = keys?.main_vk_hash
+  const mainHash = server?.main_vk_hash
+  const name = wdttKinds[kind]
   useEffect(() => {
-    form.setFieldsValue({ dtls_port: s.wdtt_dtls_port, dns: s.wdtt_dns, mtu: s.wdtt_mtu || 1280 })
-  }, [s.wdtt_dtls_port, s.wdtt_dns, s.wdtt_mtu, form])
+    form.setFieldsValue({ dtls_port: s.dtls_port, dns: s.dns, mtu: s.mtu || 1280 })
+  }, [s.dtls_port, s.dns, s.mtu, form])
   useEffect(() => {
     if (mainHash !== undefined) form.setFieldsValue({ vk_hash: mainHash })
   }, [mainHash, form])
 
   const submit = (enabled: boolean, extra: Record<string, unknown> = {}) => {
     const v = form.getFieldsValue()
-    queue(put('/api/services/wdtt', { enabled, dtls_port: v.dtls_port, dns: v.dns, mtu: v.mtu, vk_hash: v.vk_hash ?? '', ...extra }))
+    queue(put('/api/services/wdtt', { kind, enabled, dtls_port: v.dtls_port, dns: v.dns, mtu: v.mtu, vk_hash: v.vk_hash ?? '', ...extra }))
   }
   const setOwner = async () => {
     const v = await ownerForm.validateFields()
@@ -104,30 +116,33 @@ export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDT
   return (
     <Card
       title={
-        <Space>
-          WDTT
-          <StateTag installed={st.wdtt_installed} active={st.wdtt_active} />
+        <Space wrap>
+          Сервер WDTT
+          <KindTag kind={kind} />
+          <StateTag installed={installed} active={active} />
         </Space>
       }
       extra={
         <Popconfirm
-          title={s.wdtt_enabled ? 'Удалить WDTT с сервера?' : 'Включить WDTT?'}
-          description={s.wdtt_enabled ? 'Клиенты отключатся. Ключи и устройства сохранятся.' : 'Сервер WDTT встроен в панель и запускается за несколько секунд.'}
+          title={s.enabled ? `Выключить сервер для ${name.app}?` : `Включить сервер для ${name.app}?`}
+          description={s.enabled ? 'Его клиенты отключатся. Ключи и устройства сохранятся.' : 'Сервер встроен в панель и запускается за несколько секунд.'}
           okText="Да"
           cancelText="Нет"
-          onConfirm={() => submit(!s.wdtt_enabled)}
+          onConfirm={() => submit(!s.enabled)}
         >
-          <Switch checked={s.wdtt_enabled} checkedChildren="вкл" unCheckedChildren="выкл" />
+          <Switch checked={s.enabled} checkedChildren="вкл" unCheckedChildren="выкл" />
         </Popconfirm>
       }
     >
       <Typography.Paragraph type="secondary">
-        WireGuard поверх DTLS, замаскированный под медиатрафик звонка, через TURN-серверы VK — для стандартных клиентов WDTT. Наружу открыт только UDP-порт DTLS; на чужие пакеты сервер не отвечает.
+        {kind === 'turnvk'
+          ? 'Отдельный сервер для нашего клиента TurnVK: свой порт, свой пароль владельца, свои ключи и устройства. Сейчас протокол тот же, что у стандартного WDTT; изменения для TurnVK будут вноситься только сюда, не затрагивая стандартных клиентов.'
+          : 'WireGuard поверх DTLS, замаскированный под медиатрафик звонка, через TURN-серверы VK — для стандартного приложения WDTT. Наружу открыт только UDP-порт DTLS; на чужие пакеты сервер не отвечает.'}
       </Typography.Paragraph>
       <Form form={form} layout="vertical">
         <Row gutter={12}>
           <Col xs={24} sm={8}>
-            <Form.Item name="dtls_port" label="UDP-порт DTLS">
+            <Form.Item name="dtls_port" label="UDP-порт DTLS" tooltip={kind === 'turnvk' ? 'Должен отличаться от порта сервера для стандартного клиента.' : undefined}>
               <InputNumber min={1024} max={65534} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
@@ -152,7 +167,7 @@ export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDT
           </Col>
         </Row>
       </Form>
-      {s.wdtt_enabled && (
+      {s.enabled && (
         <Descriptions size="small" bordered column={1} style={{ marginBottom: 16 }}>
           <Descriptions.Item label="Сейчас">
             {rt ? (
@@ -189,10 +204,10 @@ export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDT
         </Descriptions>
       )}
       <Space wrap>
-        <Button type="primary" onClick={() => submit(s.wdtt_enabled)} disabled={!s.wdtt_enabled}>
+        <Button type="primary" onClick={() => submit(s.enabled)} disabled={!s.enabled}>
           Сохранить параметры
         </Button>
-        {s.wdtt_enabled && (
+        {s.enabled && (
           <Popconfirm
             title="Сменить пароль владельца?"
             description="Устройствам с паролем владельца нужно будет ввести новый. Ключи доступа не изменятся."
@@ -204,10 +219,10 @@ export function WDTTCard({ data, keys, reload }: { data: ServicesData; keys: WDT
           </Popconfirm>
         )}
       </Space>
-      <LinkModal id={linkOpen ? 'main' : null} title="Подключение владельца" onClose={() => setLinkOpen(false)} />
-      <Modal open={ownerOpen} title="Пароль владельца" onCancel={() => setOwnerOpen(false)} onOk={setOwner} okText="Сохранить" cancelText="Отмена" destroyOnHidden>
+      <LinkModal id={linkOpen ? 'main' : null} kind={kind} title={`Подключение владельца (${name.app})`} onClose={() => setLinkOpen(false)} />
+      <Modal open={ownerOpen} title={`Пароль владельца (${name.app})`} onCancel={() => setOwnerOpen(false)} onOk={setOwner} okText="Сохранить" cancelText="Отмена" destroyOnHidden>
         <Typography.Paragraph type="secondary">
-          Например, пароль прежнего сервера WDTT — тогда его клиентам ничего не придётся менять. Пароль владельца не привязывается к устройству.
+          Например, пароль прежнего сервера WDTT — тогда его клиентам ничего не придётся менять. Пароль владельца не привязывается к устройству и не ограничен по числу устройств.
         </Typography.Paragraph>
         <Form form={ownerForm} layout="vertical" requiredMark={false}>
           <Form.Item name="password" label="Пароль" rules={[{ required: true, pattern: /^[A-Za-z0-9._-]{16,128}$/, message: '16–128 символов: латиница, цифры, точка, дефис, подчёркивание' }]}>
@@ -225,9 +240,9 @@ function XUICard({ data, reload }: { data: ServicesData; reload: () => void }) {
   const [creds, setCreds] = useState<Record<string, string> | null>(null)
   const queue = useQueue(reload)
   const { message } = App.useApp()
-  const set = (enabled: boolean, route: boolean) => {
+  const set = (enabled: boolean, route: boolean, publicSub?: boolean) => {
     setCreds(null)
-    queue(put('/api/services/xui', { enabled, route_via_chain: route }))
+    queue(put('/api/services/xui', { enabled, route_via_chain: route, ...(publicSub === undefined ? {} : { public_sub: publicSub }) }))
   }
   const reveal = async () => {
     try {
@@ -257,12 +272,29 @@ function XUICard({ data, reload }: { data: ServicesData; reload: () => void }) {
       }
     >
       <Typography.Paragraph type="secondary">
-        Панель Xray для клиентских подключений (VLESS Reality и др.). Веб-интерфейс и подписки слушают только 127.0.0.1. Порты включённых подключений открываются в firewall автоматически.
+        Панель Xray для клиентских подключений (VLESS Reality и др.). Веб-интерфейс слушает только 127.0.0.1, подписки — тоже, пока вы не откроете их ниже. Порты включённых подключений открываются в firewall автоматически, в течение полуминуты.
       </Typography.Paragraph>
       <Descriptions size="small" bordered column={1} style={{ marginBottom: 16 }}>
         <Descriptions.Item label="Трафик через цепочку">
           <Switch size="small" checked={s.xui_route_via_chain} disabled={!s.xui_enabled} onChange={(v) => set(true, v)} />
           {!s.xui_route_via_chain && s.xui_enabled && <Typography.Text type="warning"> трафик выходит напрямую с сервера панели</Typography.Text>}
+        </Descriptions.Item>
+        <Descriptions.Item label="Подписки из Интернета">
+          <Popconfirm
+            title={s.xui_public_sub ? 'Закрыть подписки для Интернета?' : 'Открыть подписки для Интернета?'}
+            description={
+              s.xui_public_sub
+                ? 'Ссылки-подписки перестанут работать у клиентов; подключения по готовым ссылкам продолжат работать.'
+                : 'Сервер подписок 3x-ui (порт 2096 по умолчанию) станет доступен из Интернета, а ссылки подписок в 3x-ui — указывать на адрес этого сервера. Подписка передаётся по HTTP: кто знает ссылку, получит настройки подключений. Не публикуйте ссылки.'
+            }
+            okText="Да"
+            cancelText="Нет"
+            disabled={!s.xui_enabled}
+            onConfirm={() => set(true, s.xui_route_via_chain, !s.xui_public_sub)}
+          >
+            <Switch size="small" checked={!!s.xui_public_sub} disabled={!s.xui_enabled} />
+          </Popconfirm>
+          {!s.xui_public_sub && s.xui_enabled && <Typography.Text type="secondary"> подписки доступны только через SSH-туннель</Typography.Text>}
         </Descriptions.Item>
         <Descriptions.Item label="Открытые порты">{st.xui_ports?.length ? st.xui_ports.map((p) => <Tag key={p}>{p}</Tag>) : '—'}</Descriptions.Item>
         {s.xui_enabled && (

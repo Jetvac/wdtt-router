@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,8 +37,16 @@ type Peers interface {
 	Close() error
 }
 
+// PeerOptions describe the WireGuard device of a server.
+type PeerOptions struct {
+	Private string // server private key, base64
+	MTU     int
+	Iface   string // TUN interface
+	Addr    string // server address with prefix, e.g. 10.66.66.1/24
+}
+
 // PeersFactory creates the WireGuard device on top of the bind.
-type PeersFactory func(b *bind, serverPrivate string, mtu int) (Peers, error)
+type PeersFactory func(b *bind, o PeerOptions) (Peers, error)
 
 const (
 	handshakeTimeout = 20 * time.Second
@@ -67,6 +76,7 @@ type Server struct {
 	mux     *mux
 	bind    *bind
 	traffic sync.Map // key id -> *counter
+	devTraf sync.Map // device id -> *counter
 	started time.Time
 
 	handshakeFailed atomic.Int64
@@ -87,6 +97,11 @@ func NewServer(cfgPath string, peers PeersFactory) *Server {
 
 func (s *Server) counter(id string) *counter {
 	c, _ := s.traffic.LoadOrStore(id, &counter{})
+	return c.(*counter)
+}
+
+func (s *Server) devCounter(id string) *counter {
+	c, _ := s.devTraf.LoadOrStore(id, &counter{})
 	return c.(*counter)
 }
 
@@ -129,7 +144,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
 		return err
 	}
-	st, migrated, err := loadState(cfg.DataDir)
+	st, migrated, err := loadState(cfg.DataDir, cfg.subnet())
 	if err != nil {
 		return err
 	}
@@ -145,7 +160,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.cfg, s.st, s.byPass, s.byID, s.started = cfg, st, byPass, byID, time.Now()
 	s.bind = newBind()
-	if s.peers, err = s.newPeers(s.bind, st.ServerPrivate, cfg.MTU); err != nil {
+	if s.peers, err = s.newPeers(s.bind, PeerOptions{Private: st.ServerPrivate, MTU: cfg.MTU, Iface: cfg.Iface, Addr: cfg.ServerAddr() + "/24"}); err != nil {
 		return fmt.Errorf("WireGuard: %w", err)
 	}
 	defer s.peers.Close()
@@ -174,7 +189,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	context.AfterFunc(ctx, func() { _ = l.Close() })
-	log.Printf("WDTT server %s listening on udp %s, %d passwords, %d devices", s.Version, cfg.Listen, len(ring), len(st.Devices))
+	log.Printf("WDTT server %s (%s clients) listening on udp %s, %d passwords, %d devices", s.Version, cfg.Kind, cfg.Listen, len(ring), len(st.Devices))
 	logResets(s.mux.resetPrevious(sessionsFile(cfg.StatusFile)))
 
 	var wg sync.WaitGroup
@@ -250,8 +265,8 @@ func (s *Server) Reload() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cfg.Listen != s.cfg.Listen || cfg.DataDir != s.cfg.DataDir {
-		return errors.New("listen address and data directory need a restart")
+	if cfg.Listen != s.cfg.Listen || cfg.DataDir != s.cfg.DataDir || cfg.Iface != s.cfg.Iface || cfg.Network != s.cfg.Network || cfg.Kind != s.cfg.Kind {
+		return errors.New("listen address, data directory, interface, network and kind need a restart")
 	}
 	old := s.byPass
 	if cfg.MTU != s.cfg.MTU {
@@ -282,21 +297,45 @@ func (s *Server) applyKeysLocked() {
 		}
 		k, ok := s.byID[id]
 		if !ok {
-			s.dropDeviceLocked(ks.DeviceID)
+			for _, d := range ks.Devices {
+				s.dropDeviceLocked(d.ID)
+			}
 			delete(s.st.Keys, id)
 			s.dirty = true
 			continue
 		}
 		if k.DeviceEpoch != ks.DeviceEpoch {
-			if ks.DeviceID != "" {
-				log.Printf("key %s: device %s unbound", id, ks.DeviceID)
-				s.dropDeviceLocked(ks.DeviceID)
+			if len(ks.Devices) > 0 {
+				log.Printf("key %s: all %d devices unbound", id, len(ks.Devices))
+				for _, d := range ks.Devices {
+					s.dropDeviceLocked(d.ID)
+				}
 				s.dropKey(id)
 			}
-			ks.DeviceID, ks.DeviceEpoch = "", k.DeviceEpoch
+			ks.Devices, ks.DeviceEpoch = nil, k.DeviceEpoch
 			s.dirty = true
 		}
+		for _, u := range k.Unbind {
+			for i, d := range ks.Devices {
+				if d.ID == u.Device && d.At <= u.At {
+					log.Printf("key %s: device %q unbound", id, d.ID)
+					ks.Devices = append(ks.Devices[:i], ks.Devices[i+1:]...)
+					s.dropDeviceLocked(d.ID)
+					s.dropDevice(d.ID)
+					s.dirty = true
+					break
+				}
+			}
+		}
 	}
+}
+
+// dropDevice ends every session of one device.
+func (s *Server) dropDevice(dev string) {
+	if s.bind == nil {
+		return
+	}
+	go s.closeSessions(func(ss *session) bool { return ss.dev == dev })
 }
 
 func (s *Server) dropDeviceLocked(id string) {
@@ -313,12 +352,18 @@ func (s *Server) syncPeersLocked() error {
 	bound := map[string]bool{}
 	allowed := map[string]bool{}
 	for id, ks := range s.st.Keys {
-		if ks.DeviceID == "" || id == MainKeyID {
+		if id == MainKeyID {
 			continue
 		}
-		bound[ks.DeviceID] = true
+		active := false
 		if k, ok := s.byID[id]; ok && k.active(now) {
-			allowed[ks.DeviceID] = true
+			active = true
+		}
+		for _, d := range ks.Devices {
+			bound[d.ID] = true
+			if active {
+				allowed[d.ID] = true
+			}
 		}
 	}
 	peers := map[string]string{}
@@ -377,6 +422,7 @@ func (s *Server) serve(ctx context.Context, c *dtls.Conn) {
 			return
 		}
 		sess.dev = dev
+		sess.dcnt.Store(s.devCounter(dev))
 		msg = nil
 	} else if string(msg) == "READY" {
 		if _, err := c.Write([]byte("READY_OK")); err != nil {
@@ -388,6 +434,9 @@ func (s *Server) serve(ctx context.Context, c *dtls.Conn) {
 	for {
 		if len(msg) > 0 && !(len(msg) == 1 && msg[0] == keepaliveByte) {
 			sess.cnt.up.Add(int64(len(msg)))
+			if dc := sess.dcnt.Load(); dc != nil {
+				dc.up.Add(int64(len(msg)))
+			}
 			// WireGuard data (type 4) on a new session: the client holds
 			// keys. If the server has no fresh handshake with it, those
 			// keys are from before a restart; start a new one at once.
@@ -508,20 +557,33 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		ks = &keyState{DeviceEpoch: k.DeviceEpoch}
 		s.st.Keys[k.ID] = ks
 	}
-	if k.ID != MainKeyID {
-		if ks.DeviceID != "" && ks.DeviceID != devID {
-			log.Printf("GETCONF key %s: bound to another device, request from %q", k.ID, devID)
+	if k.ID != MainKeyID && !ks.has(devID) {
+		// The standard client knows device_mismatch ("the key is used on
+		// another device"); a key with every slot taken answers the same.
+		if k.MaxDevices > 0 && len(ks.Devices) >= k.MaxDevices {
+			log.Printf("GETCONF key %s: all %d device slots taken, request from %q", k.ID, k.MaxDevices, devID)
 			return "DENIED:device_mismatch", "", false
 		}
-		if ks.DeviceID == "" {
-			ks.DeviceID = devID
-			log.Printf("key %s bound to device %q", k.ID, devID)
+		// A device belongs to one key; this key takes it over.
+		for oid, o := range s.st.Keys {
+			if oid == k.ID {
+				continue
+			}
+			for i, d := range o.Devices {
+				if d.ID == devID {
+					o.Devices = append(o.Devices[:i], o.Devices[i+1:]...)
+					log.Printf("device %q moves from key %s to key %s", devID, oid, k.ID)
+					break
+				}
+			}
 		}
+		ks.Devices = append(ks.Devices, boundDevice{ID: devID, At: now.Unix()})
+		log.Printf("key %s bound to device %q (%d of %s)", k.ID, devID, len(ks.Devices), limitText(k.MaxDevices))
 	}
 	ks.LastSeen = now.Unix()
 	d := s.st.Devices[devID]
 	if d == nil {
-		ip := s.st.freeIP()
+		ip := s.st.freeIP(s.cfg.subnet())
 		priv, pub, err := newKeyPair()
 		if ip == "" || err != nil {
 			log.Printf("GETCONF %q: no free client address", devID)
@@ -531,7 +593,7 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		s.st.Devices[devID] = d
 		log.Printf("new device %q -> %s", devID, ip)
 	}
-	d.LastSeen = now.Unix()
+	d.LastSeen, d.Key = now.Unix(), k.ID
 	s.dirty = true
 	if err := s.syncPeersLocked(); err != nil {
 		log.Printf("WireGuard peers: %v", err)
@@ -599,7 +661,9 @@ func (s *Server) expireLocked() {
 	}
 	bound := map[string]bool{}
 	for _, ks := range s.st.Keys {
-		bound[ks.DeviceID] = true
+		for _, d := range ks.Devices {
+			bound[d.ID] = true
+		}
 	}
 	for id, d := range s.st.Devices {
 		if !bound[id] && d.LastSeen != 0 && now.Sub(time.Unix(d.LastSeen, 0)) > deviceTTL {
@@ -636,6 +700,16 @@ func (s *Server) flushLocked() {
 		s.dirty = true
 		return true
 	})
+	s.devTraf.Range(func(k, v any) bool {
+		c := v.(*counter)
+		up, down := c.up.Swap(0), c.down.Swap(0)
+		if d := s.st.Devices[k.(string)]; d != nil && (up != 0 || down != 0) {
+			d.Up += up
+			d.Down += down
+			s.dirty = true
+		}
+		return true
+	})
 	if !s.dirty {
 		return
 	}
@@ -649,6 +723,7 @@ func (s *Server) flushLocked() {
 // Status is published for the agent and the panel.
 type Status struct {
 	Version           string               `json:"version"`
+	Kind              string               `json:"kind"`
 	StartedAt         int64                `json:"started_at"`
 	UpdatedAt         int64                `json:"updated_at"`
 	Sessions          int                  `json:"sessions"`
@@ -661,25 +736,55 @@ type Status struct {
 
 // KeyStatus describes one password.
 type KeyStatus struct {
+	Sessions int `json:"sessions"`
+	// DeviceID and DeviceIP are the most recent device, as in earlier versions.
+	DeviceID string         `json:"device_id,omitempty"`
+	DeviceIP string         `json:"device_ip,omitempty"`
+	Up       int64          `json:"up_bytes"`
+	Down     int64          `json:"down_bytes"`
+	LastSeen int64          `json:"last_seen,omitempty"`
+	Devices  []DeviceStatus `json:"devices,omitempty"`
+}
+
+// DeviceStatus describes one device of a password. The owner password's
+// devices are the ones that last connected with it.
+type DeviceStatus struct {
+	ID       string `json:"id"`
+	IP       string `json:"ip"`
 	Sessions int    `json:"sessions"`
-	DeviceID string `json:"device_id,omitempty"`
-	DeviceIP string `json:"device_ip,omitempty"`
 	Up       int64  `json:"up_bytes"`
 	Down     int64  `json:"down_bytes"`
 	LastSeen int64  `json:"last_seen,omitempty"`
+	BoundAt  int64  `json:"bound_at,omitempty"`
 }
 
 func (s *Server) statusLocked() Status {
-	total, byKey := s.bind.count()
-	st := Status{Version: s.Version, StartedAt: s.started.Unix(), UpdatedAt: time.Now().Unix(), Sessions: total,
+	total, byKey, byDev := s.bind.count()
+	st := Status{Version: s.Version, Kind: s.cfg.Kind, StartedAt: s.started.Unix(), UpdatedAt: time.Now().Unix(), Sessions: total,
 		Devices: len(s.st.Devices), HandshakeFailures: s.handshakeFailed.Load(), AuthFailures: s.mux.authFailed.Load(),
 		StaleResets: s.mux.resetsSent.Load(), Keys: map[string]KeyStatus{}}
+	device := func(id string, boundAt int64) (DeviceStatus, bool) {
+		d := s.st.Devices[id]
+		if d == nil {
+			return DeviceStatus{}, false
+		}
+		ds := DeviceStatus{ID: id, IP: d.IP, Sessions: byDev[id], Up: d.Up, Down: d.Down, LastSeen: d.LastSeen, BoundAt: boundAt}
+		if v, ok := s.devTraf.Load(id); ok {
+			ds.Up += v.(*counter).up.Load()
+			ds.Down += v.(*counter).down.Load()
+		}
+		return ds, true
+	}
+	bound := map[string]bool{}
 	for id := range s.byID {
 		ks := KeyStatus{Sessions: byKey[id]}
 		if k := s.st.Keys[id]; k != nil {
-			ks.DeviceID, ks.Up, ks.Down, ks.LastSeen = k.DeviceID, k.Up, k.Down, k.LastSeen
-			if d := s.st.Devices[k.DeviceID]; d != nil {
-				ks.DeviceIP = d.IP
+			ks.Up, ks.Down, ks.LastSeen = k.Up, k.Down, k.LastSeen
+			for _, b := range k.Devices {
+				bound[b.ID] = true
+				if ds, ok := device(b.ID, b.At); ok {
+					ks.Devices = append(ks.Devices, ds)
+				}
 			}
 		}
 		if v, ok := s.traffic.Load(id); ok {
@@ -688,7 +793,31 @@ func (s *Server) statusLocked() Status {
 		}
 		st.Keys[id] = ks
 	}
+	if main, ok := st.Keys[MainKeyID]; ok {
+		for id, d := range s.st.Devices {
+			if !bound[id] && (d.Key == MainKeyID || d.Key == "") {
+				if ds, ok := device(id, 0); ok {
+					main.Devices = append(main.Devices, ds)
+				}
+			}
+		}
+		st.Keys[MainKeyID] = main
+	}
+	for id, ks := range st.Keys {
+		sort.Slice(ks.Devices, func(i, j int) bool { return ks.Devices[i].LastSeen > ks.Devices[j].LastSeen })
+		if len(ks.Devices) > 0 && id != MainKeyID {
+			ks.DeviceID, ks.DeviceIP = ks.Devices[0].ID, ks.Devices[0].IP
+		}
+		st.Keys[id] = ks
+	}
 	return st
+}
+
+func limitText(n int) string {
+	if n == 0 {
+		return "unlimited"
+	}
+	return strconv.Itoa(n)
 }
 
 func writeStatus(path string, st Status) {
@@ -726,7 +855,8 @@ type session struct {
 	dead    atomic.Bool
 	lastIdx atomic.Uint32
 	lastRx  atomic.Int64
-	dev     string      // device that sent GETCONF on this session
+	dev     string // device that sent GETCONF on this session
+	dcnt    atomic.Pointer[counter]
 	opened  int64       // unix nanoseconds
 	checked atomic.Bool // the device's WireGuard state was checked
 	wmu     sync.Mutex
@@ -750,5 +880,8 @@ func (s *session) writeData(p []byte) error {
 		return err
 	}
 	s.cnt.down.Add(int64(len(p)))
+	if dc := s.dcnt.Load(); dc != nil {
+		dc.down.Add(int64(len(p)))
+	}
 	return nil
 }
