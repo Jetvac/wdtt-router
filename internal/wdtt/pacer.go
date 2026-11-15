@@ -203,7 +203,7 @@ func (p *pacer) step(out []sendItem) ([]sendItem, time.Duration) {
 	// Until some path has the tokens for the next packet.
 	best := time.Duration(math.MaxInt64)
 	for _, s := range list {
-		if s.dead.Load() || s.dp.lastRx.Load() < fresh {
+		if s.dead.Load() || !s.dp.usable(now, fresh) {
 			continue
 		}
 		pr := &s.dp.pr
@@ -257,7 +257,7 @@ func (p *pacer) pick(list []*session, n int, now, fresh int64, skip *session, bu
 	bestScore := 0.0
 	for _, s := range list {
 		pr := &s.dp.pr
-		if s == skip || s.dead.Load() || s.dp.lastRx.Load() < fresh || pr.Tokens < size {
+		if s == skip || s.dead.Load() || pr.Tokens < size || !s.dp.usable(now, fresh) {
 			continue
 		}
 		// Half the round trip, less a bonus for spare tokens (spreads load).
@@ -271,7 +271,7 @@ func (p *pacer) pick(list []*session, n int, now, fresh int64, skip *session, bu
 	}
 	if bulk {
 		if l := p.last; l != nil && l != best && p.run < bulkRun && !l.dead.Load() &&
-			l.dp.lastRx.Load() >= fresh && l.dp.pr.Tokens >= size {
+			l.dp.pr.Tokens >= size && l.dp.usable(now, fresh) {
 			best = l
 		}
 		if best == p.last {

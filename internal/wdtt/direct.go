@@ -60,10 +60,15 @@ const (
 
 	directVersion = 1
 
-	helloSkew   = 10 * time.Minute // client clock may be off by this much
-	pathIdle    = 2 * time.Minute  // clients ping every path every 4 s
-	pathFresh   = 12 * time.Second // a path heard from within this carries traffic
-	directChunk = 16               // tests: packets enough to cross paths
+	helloSkew = 10 * time.Minute // client clock may be off by this much
+	pathIdle  = 2 * time.Minute  // clients ping every path every 2 s
+	// pathFresh: a path heard from within this carries traffic. Clients
+	// ping every 2 s, so a path that missed two pings is left out (it gets
+	// traffic again as soon as it answers); with none fresh, the pacer
+	// still sends on any live path.
+	pathFresh   = 5 * time.Second
+	pathStall   = 750 * time.Millisecond
+	directChunk = 16 // tests: packets enough to cross paths
 )
 
 // WELCOME status codes.
@@ -98,8 +103,11 @@ type dpath struct {
 	sess   atomic.Pointer[session]
 	rtt    atomic.Int32 // ms, as measured by the client
 	lastRx atomic.Int64 // unix nanoseconds
-	pr     PathRate     // pacing of what the server sends (pace.go)
-	rx     RxTrack      // what the client sends; read loop only
+	// pending: when the server first sent on the path after it last heard
+	// from it (unix ns); see usable.
+	pending atomic.Int64
+	pr      PathRate // pacing of what the server sends (pace.go)
+	rx      RxTrack  // what the client sends; read loop only
 
 	txMu  sync.Mutex
 	txBuf [maxDatagram + MaxWireOverhead]byte
@@ -111,10 +119,31 @@ func (p *dpath) send(b []byte) error {
 	}
 	p.txMu.Lock()
 	n := p.tx.seal(p.txBuf[:], b)
-	p.pr.OnSend(binary.BigEndian.Uint16(p.txBuf[2:4]), time.Now().UnixNano())
+	now := time.Now().UnixNano()
+	p.pr.OnSend(binary.BigEndian.Uint16(p.txBuf[2:4]), now)
+	if p.pending.Load() <= p.lastRx.Load() {
+		p.pending.Store(now)
+	}
 	_, err := p.sock.WriteToUDPAddrPort(p.txBuf[:n], p.raddr)
 	p.txMu.Unlock()
 	return err
+}
+
+// usable reports whether the path may carry traffic: heard from since
+// fresh, and, for a client that reports every packet it gets (FEEDBACK),
+// not silent for pathStall since the server first sent on it unanswered.
+// A path VK stopped relaying thus drops out within pathStall instead of
+// pathFresh; it comes back as soon as anything arrives on it (the
+// client's next ping, at most 2 s later).
+func (p *dpath) usable(now, fresh int64) bool {
+	rx := p.lastRx.Load()
+	if rx < fresh {
+		return false
+	}
+	if pd := p.pending.Load(); pd > rx && now-pd > int64(pathStall) && p.pr.HasFeedback() {
+		return false
+	}
+	return true
 }
 
 // sendDirectReset tells a client that the server does not know its path.

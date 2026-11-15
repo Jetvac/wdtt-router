@@ -271,3 +271,43 @@ func TestFastStartAndLearnedRates(t *testing.T) {
 		t.Fatal("unsettled path taught a rate")
 	}
 }
+
+// A path that a reporting client stopped answering (sent on, no FEEDBACK
+// back) is left out after pathStall, long before pathFresh, and used again
+// once anything arrives on it.
+func TestPathStall(t *testing.T) {
+	now := time.Now().UnixNano()
+	fresh := now - int64(pathFresh)
+	dead, ok := testPath(50, now), testPath(90, now)
+	for _, s := range []*session{dead, ok} {
+		s.dp.pr.mu.Lock()
+		s.dp.pr.fbSeen = time.Now()
+		s.dp.pr.mu.Unlock()
+	}
+	sent := now + int64(100*time.Millisecond)
+	dead.dp.pending.Store(sent) // sent on after the last answer
+	if !dead.dp.usable(sent+int64(pathStall)/2, fresh) {
+		t.Fatal("left out before pathStall")
+	}
+	later := sent + int64(pathStall) + 1
+	if dead.dp.usable(later, fresh) {
+		t.Fatal("still used after pathStall without an answer")
+	}
+	list := []*session{dead, ok}
+	p := &pacer{}
+	dead.dp.pr.Refill(later)
+	ok.dp.pr.Refill(later)
+	if p.pick(list, 100, later, fresh, nil, false) != ok {
+		t.Fatal("stalled path picked")
+	}
+	dead.dp.lastRx.Store(later) // the client's ping
+	if !dead.dp.usable(later, fresh) {
+		t.Fatal("not used again after an answer")
+	}
+	// A client without FEEDBACK is judged by pathFresh only.
+	old := testPath(50, now)
+	old.dp.pending.Store(sent)
+	if !old.dp.usable(later, fresh) {
+		t.Fatal("client without FEEDBACK left out by pathStall")
+	}
+}
