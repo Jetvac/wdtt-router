@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -419,6 +420,15 @@ func (a *App) wdttLink(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	out := map[string]string{"password": password, "host": n.Host, "port": strconv.Itoa(ws.DTLSPort), "kind": kind.ID, "client": kind.Label}
 	if hash != "" && !strings.Contains(n.Host, ":") {
 		out["link"] = fmt.Sprintf("wdtt://%s:%d:%d:9000:%s:%s", n.Host, ws.DTLSPort, ws.WGPort, password, hash)
+		// TurnVK links carry the server's key: the client then uses the
+		// direct protocol and refuses any other server.
+		if kind.ID == spec.WDTTTurnVK {
+			if rt := a.readWDTTRuntime(kind.ID); rt != nil {
+				if k, err := base64.StdEncoding.DecodeString(rt.ServerKey); err == nil && len(k) == 32 {
+					out["link"] += "?pk=" + base64.RawURLEncoding.EncodeToString(k)
+				}
+			}
+		}
 	}
 	a.audit(r, s, "secret.view", "wdtt "+kind.ID+" "+id)
 	writeJSON(w, 200, out)

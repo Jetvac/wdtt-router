@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // After a crash the clients' sessions point at a server that no longer
@@ -20,13 +21,23 @@ type liveSession struct {
 	Addr netip.AddrPort `json:"addr"`
 	Key  string         `json:"key"`
 	PT   byte           `json:"pt"`
+	// Direct is a direct path (TurnVK client) rather than a DTLS session.
+	Direct bool `json:"direct,omitempty"`
 }
 
+// sessionsFile sits next to the status file and is named after it, so the
+// two servers (wdtt-status.json, wdtt-turnvk-status.json) keep separate
+// lists: wdtt-sessions.json and wdtt-turnvk-sessions.json.
 func sessionsFile(statusFile string) string {
 	if statusFile == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(statusFile), "wdtt-sessions.json")
+	base := strings.TrimSuffix(filepath.Base(statusFile), ".json")
+	base = strings.TrimSuffix(base, "-status")
+	if base == "" || base == "status" {
+		base = "wdtt"
+	}
+	return filepath.Join(filepath.Dir(statusFile), base+"-sessions.json")
 }
 
 func (m *mux) live() []liveSession {
@@ -35,6 +46,9 @@ func (m *mux) live() []liveSession {
 	out := make([]liveSession, 0, len(m.conns))
 	for _, c := range m.conns {
 		out = append(out, liveSession{Addr: c.raddr, Key: c.keyID, PT: c.tx.pt})
+	}
+	for _, p := range m.paths {
+		out = append(out, liveSession{Addr: p.raddr, Key: p.keyID, PT: p.tx.pt, Direct: true})
 	}
 	return out
 }
@@ -75,7 +89,11 @@ func (m *mux) resetPrevious(path string) int {
 		if !ok || !ls.Addr.IsValid() {
 			continue
 		}
-		m.sendReset(m.socks[0], ls.Addr, k, ls.PT)
+		if ls.Direct {
+			m.sendDirectReset(m.socks[0], ls.Addr, k, ls.PT)
+		} else {
+			m.sendReset(m.socks[0], ls.Addr, k, ls.PT)
+		}
 		n++
 	}
 	return n

@@ -162,6 +162,9 @@ export interface WDTTDevice {
   down_bytes: number
   last_seen?: number
   bound_at?: number
+  /** TurnVK clients: live routes through VK TURN and their average RTT. */
+  paths?: number
+  rtt_ms?: number
 }
 
 export interface WDTTKeyRuntime {

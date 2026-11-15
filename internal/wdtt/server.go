@@ -86,6 +86,8 @@ type Server struct {
 	kmu    sync.Mutex
 	kicked map[string]time.Time // device -> last server-initiated handshake
 	kicks  atomic.Int64
+
+	nonces nonceCache // HELLOs seen recently (direct paths)
 }
 
 type counter struct{ up, down atomic.Int64 }
@@ -175,6 +177,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.mux, err = listenMux(ctx, cfg.Listen, ring); err != nil {
 		return err
 	}
+	if cfg.Kind == KindTurnVK {
+		var h directHandler = directServer{s}
+		s.mux.direct.Store(&h)
+	}
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		return err
@@ -238,6 +244,10 @@ func (s *Server) closeSessions(match func(*session) bool) {
 	s.bind.mu.Unlock()
 	var wg sync.WaitGroup
 	for _, ss := range list {
+		if ss.dp != nil {
+			s.closePath(ss.dp, true)
+			continue
+		}
 		wg.Add(1)
 		go func() { defer wg.Done(); _ = ss.c.Close() }()
 	}
@@ -368,6 +378,9 @@ func (s *Server) syncPeersLocked() error {
 	}
 	peers := map[string]string{}
 	for id, d := range s.st.Devices {
+		if d.Public == "" {
+			continue
+		}
 		if allowed[id] || (!bound[id] && s.cfg.MainPassword != "") {
 			peers[d.Public] = d.IP
 		}
@@ -552,6 +565,36 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		return "DENIED:wrong_password", "", false
 	}
 	now := time.Now()
+	d, deny := s.admitLocked(k, devID, now)
+	switch deny {
+	case "":
+	case "noconf":
+		return "NOCONF", "", true
+	default:
+		return "DENIED:" + deny, "", false
+	}
+	if d.Private == "" {
+		// New, or it last connected with a TurnVK client's own key.
+		priv, pub, err := newKeyPair()
+		if err != nil {
+			return "NOCONF", "", true
+		}
+		d.Private, d.Public, d.KeyAt = priv, pub, now.UnixMilli()
+	}
+	d.LastSeen, d.Key = now.Unix(), k.ID
+	d.New = false
+	s.dirty = true
+	if err := s.syncPeersLocked(); err != nil {
+		log.Printf("WireGuard peers: %v", err)
+		return "NOCONF", "", true
+	}
+	return clientConfig(s.st.ServerPublic, d.Private, d.IP, s.cfg.DNS, port, s.cfg.MTU), devID, true
+}
+
+// admitLocked binds a device to a key (within its device limit) and
+// returns its state, creating it with a free address; deny is
+// device_mismatch or noconf.
+func (s *Server) admitLocked(k Key, devID string, now time.Time) (*deviceState, string) {
 	ks := s.st.Keys[k.ID]
 	if ks == nil {
 		ks = &keyState{DeviceEpoch: k.DeviceEpoch}
@@ -561,8 +604,8 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		// The standard client knows device_mismatch ("the key is used on
 		// another device"); a key with every slot taken answers the same.
 		if k.MaxDevices > 0 && len(ks.Devices) >= k.MaxDevices {
-			log.Printf("GETCONF key %s: all %d device slots taken, request from %q", k.ID, k.MaxDevices, devID)
-			return "DENIED:device_mismatch", "", false
+			log.Printf("key %s: all %d device slots taken, request from %q", k.ID, k.MaxDevices, devID)
+			return nil, "device_mismatch"
 		}
 		// A device belongs to one key; this key takes it over.
 		for oid, o := range s.st.Keys {
@@ -581,25 +624,19 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		log.Printf("key %s bound to device %q (%d of %s)", k.ID, devID, len(ks.Devices), limitText(k.MaxDevices))
 	}
 	ks.LastSeen = now.Unix()
+	s.dirty = true
 	d := s.st.Devices[devID]
 	if d == nil {
 		ip := s.st.freeIP(s.cfg.subnet())
-		priv, pub, err := newKeyPair()
-		if ip == "" || err != nil {
-			log.Printf("GETCONF %q: no free client address", devID)
-			return "NOCONF", "", true
+		if ip == "" {
+			log.Printf("device %q: no free client address", devID)
+			return nil, "noconf"
 		}
-		d = &deviceState{IP: ip, Private: priv, Public: pub}
+		d = &deviceState{IP: ip, New: true}
 		s.st.Devices[devID] = d
 		log.Printf("new device %q -> %s", devID, ip)
 	}
-	d.LastSeen, d.Key = now.Unix(), k.ID
-	s.dirty = true
-	if err := s.syncPeersLocked(); err != nil {
-		log.Printf("WireGuard peers: %v", err)
-		return "NOCONF", "", true
-	}
-	return clientConfig(s.st.ServerPublic, d.Private, d.IP, s.cfg.DNS, port, s.cfg.MTU), devID, true
+	return d, ""
 }
 
 func (s *Server) knownInactiveLocked(password string) (Key, bool) {
@@ -635,6 +672,7 @@ func (s *Server) housekeeping(ctx context.Context) {
 		st := s.statusLocked()
 		path := s.cfg.StatusFile
 		s.mu.Unlock()
+		s.expirePaths(time.Now())
 		writeStatus(path, st)
 		writeSessions(sessionsFile(path), s.mux.live())
 	}
@@ -732,6 +770,9 @@ type Status struct {
 	AuthFailures      int64                `json:"auth_failures"`
 	StaleResets       int64                `json:"stale_resets"`
 	Keys              map[string]KeyStatus `json:"keys"`
+	// ServerKey is the server's WireGuard public key; TurnVK links carry
+	// it so that the client accepts no other server.
+	ServerKey string `json:"server_key,omitempty"`
 }
 
 // KeyStatus describes one password.
@@ -756,19 +797,25 @@ type DeviceStatus struct {
 	Down     int64  `json:"down_bytes"`
 	LastSeen int64  `json:"last_seen,omitempty"`
 	BoundAt  int64  `json:"bound_at,omitempty"`
+	// Paths and RTT describe a TurnVK client's direct paths (TURN
+	// allocations): how many are live and their average round trip.
+	Paths int `json:"paths,omitempty"`
+	RTT   int `json:"rtt_ms,omitempty"`
 }
 
 func (s *Server) statusLocked() Status {
 	total, byKey, byDev := s.bind.count()
+	paths, rtt := s.bind.pathStats()
 	st := Status{Version: s.Version, Kind: s.cfg.Kind, StartedAt: s.started.Unix(), UpdatedAt: time.Now().Unix(), Sessions: total,
 		Devices: len(s.st.Devices), HandshakeFailures: s.handshakeFailed.Load(), AuthFailures: s.mux.authFailed.Load(),
-		StaleResets: s.mux.resetsSent.Load(), Keys: map[string]KeyStatus{}}
+		StaleResets: s.mux.resetsSent.Load(), Keys: map[string]KeyStatus{}, ServerKey: s.st.ServerPublic}
 	device := func(id string, boundAt int64) (DeviceStatus, bool) {
 		d := s.st.Devices[id]
 		if d == nil {
 			return DeviceStatus{}, false
 		}
-		ds := DeviceStatus{ID: id, IP: d.IP, Sessions: byDev[id], Up: d.Up, Down: d.Down, LastSeen: d.LastSeen, BoundAt: boundAt}
+		ds := DeviceStatus{ID: id, IP: d.IP, Sessions: byDev[id], Up: d.Up, Down: d.Down, LastSeen: d.LastSeen, BoundAt: boundAt,
+			Paths: paths[id], RTT: rtt[id]}
 		if v, ok := s.devTraf.Load(id); ok {
 			ds.Up += v.(*counter).up.Load()
 			ds.Down += v.(*counter).down.Load()
@@ -849,6 +896,8 @@ func ReadStatus(path string) (*Status, error) {
 // in parallel, each through its own TURN allocation.
 type session struct {
 	c       *dtls.Conn
+	dp      *dpath // a direct path instead of DTLS (TurnVK clients)
+	gen     string // the client run that attached the direct path
 	keyID   string
 	cnt     *counter
 	ep      *endpoint
@@ -868,6 +917,16 @@ func (s *session) writeData(p []byte) error {
 	defer s.wmu.Unlock()
 	if s.dead.Load() {
 		return net.ErrClosed
+	}
+	if s.dp != nil {
+		if err := s.dp.send(p); err != nil {
+			return err
+		}
+		s.cnt.down.Add(int64(len(p)))
+		if dc := s.dcnt.Load(); dc != nil {
+			dc.down.Add(int64(len(p)))
+		}
+		return nil
 	}
 	// Refreshing the deadline per packet costs a timer reset; once a
 	// second is plenty for a 5-second limit.

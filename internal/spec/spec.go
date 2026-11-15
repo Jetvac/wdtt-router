@@ -190,6 +190,7 @@ type WDTTRuntime struct {
 	AuthFailures      int64                     `json:"auth_failures"`
 	StaleResets       int64                     `json:"stale_resets"`
 	Keys              map[string]WDTTKeyRuntime `json:"keys"`
+	ServerKey         string                    `json:"server_key,omitempty"`
 }
 
 // WDTTKeyRuntime describes one password of the running server.
@@ -212,6 +213,9 @@ type WDTTDeviceRuntime struct {
 	Down     int64  `json:"down_bytes"`
 	LastSeen int64  `json:"last_seen,omitempty"`
 	BoundAt  int64  `json:"bound_at,omitempty"`
+	// TurnVK clients: live paths (TURN allocations) and their average RTT.
+	Paths int `json:"paths,omitempty"`
+	RTT   int `json:"rtt_ms,omitempty"`
 }
 
 // WDTTServerStatus is the state of the second (TurnVK) WDTT server; the

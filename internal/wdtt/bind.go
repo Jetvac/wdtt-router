@@ -20,6 +20,18 @@ type bind struct {
 	mu       sync.Mutex
 	closed   chan struct{}
 	sessions map[*session]struct{}
+	// devPaths lists each device's direct paths, for spreading its
+	// downlink over all of them.
+	devPaths map[string]*pathSet
+	pacers   map[string]*pacer
+	// reorder puts what TurnVK clients send over many paths back in order
+	// (reorder.go).
+	reorder Reorder[inbound]
+}
+
+// pathSet is a device's live direct paths.
+type pathSet struct {
+	list []*session
 }
 
 type inbound struct {
@@ -31,7 +43,9 @@ type inbound struct {
 const bindBatch = 32
 
 func newBind() *bind {
-	return &bind{in: make(chan inbound, 4096), closed: make(chan struct{}), sessions: map[*session]struct{}{}}
+	b := &bind{in: make(chan inbound, 4096), closed: make(chan struct{}), sessions: map[*session]struct{}{}, devPaths: map[string]*pathSet{}, pacers: map[string]*pacer{}}
+	b.reorder.Out = b.enqueue
+	return b
 }
 
 func (b *bind) Open(uint16) ([]conn.ReceiveFunc, uint16, error) {
@@ -108,6 +122,9 @@ func (b *bind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		return errors.New("unknown endpoint")
 	}
 	s := e.s
+	if s.dp != nil {
+		return b.sendDirect(bufs, s)
+	}
 	if s.dead.Load() {
 		if s = b.sibling(s); s == nil {
 			return net.ErrClosed
@@ -133,23 +150,99 @@ func (b *bind) deliver(s *session, p []byte) {
 	}
 	bp := bufPool.Get().(*[]byte)
 	n := copy(*bp, p)
+	// A TurnVK client spreads its packets over many paths: in order again
+	// before WireGuard (and the TCP behind it) sees them.
+	if s.dp != nil {
+		if idx, ctr, ok := WGData(p); ok {
+			b.reorder.Push(idx, ctr, inbound{bp, n, s})
+			return
+		}
+	}
+	b.enqueue(inbound{bp, n, s})
+}
+
+func (b *bind) enqueue(in inbound) {
 	select {
-	case b.in <- inbound{bp, n, s}:
+	case b.in <- in:
 	default:
-		bufPool.Put(bp)
+		bufPool.Put(in.b)
 	}
 }
 
 func (b *bind) add(s *session) {
 	b.mu.Lock()
 	b.sessions[s] = struct{}{}
+	if s.dp != nil && s.dev != "" {
+		ps := b.devPaths[s.dev]
+		if ps == nil {
+			ps = &pathSet{}
+			b.devPaths[s.dev] = ps
+		}
+		// Copy on write: sendDirect walks the list without the lock.
+		ps.list = append(ps.list[:len(ps.list):len(ps.list)], s)
+	}
 	b.mu.Unlock()
 }
 
 func (b *bind) remove(s *session) {
 	b.mu.Lock()
 	delete(b.sessions, s)
+	if ps := b.devPaths[s.dev]; ps != nil && s.dp != nil {
+		next := make([]*session, 0, len(ps.list))
+		for _, x := range ps.list {
+			if x != s {
+				next = append(next, x)
+			}
+		}
+		ps.list = next
+		if len(ps.list) == 0 {
+			delete(b.devPaths, s.dev)
+		}
+	}
 	b.mu.Unlock()
+}
+
+// sendDirect hands a device's packets to its pacer (pacer.go), which
+// sends them over the device's direct paths at the rate VK lets through.
+func (b *bind) sendDirect(bufs [][]byte, s *session) error {
+	if s.dev == "" {
+		for _, p := range bufs {
+			if err := s.writeData(p); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	b.mu.Lock()
+	p := b.pacers[s.dev]
+	if p == nil {
+		p = newPacer(b, s.dev)
+		b.pacers[s.dev] = p
+	}
+	b.mu.Unlock()
+	p.enqueue(bufs)
+	return nil
+}
+
+// pathStats counts each device's direct paths and averages their RTT.
+func (b *bind) pathStats() (paths, rtt map[string]int) {
+	paths, rtt = map[string]int{}, map[string]int{}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for dev, ps := range b.devPaths {
+		sum, n := 0, 0
+		for _, s := range ps.list {
+			if r := int(s.dp.rtt.Load()); r > 0 {
+				sum += r
+				n++
+			}
+		}
+		paths[dev] = len(ps.list)
+		if n > 0 {
+			rtt[dev] = sum / n
+		}
+	}
+	return paths, rtt
 }
 
 // sibling picks another live session of the same client (same password

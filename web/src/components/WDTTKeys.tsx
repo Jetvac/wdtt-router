@@ -184,7 +184,24 @@ function KeyForm({ open, kind, edit, maxDevices, onClose, onSaved }: { open: boo
   )
 }
 
-function seen(d: { sessions: number; last_seen?: number }) {
+function routes(n: number) {
+  const m10 = n % 10, m100 = n % 100
+  const w = m10 === 1 && m100 !== 11 ? 'маршрут' : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 'маршрута' : 'маршрутов'
+  return `${n} ${w}`
+}
+
+function seen(d: { sessions: number; last_seen?: number; paths?: number; rtt_ms?: number }) {
+  if (d.sessions > 0 && d.paths) {
+    // TurnVK client: its routes through VK TURN and their round trip.
+    return (
+      <Tooltip title="Маршруты через VK TURN, по которым сейчас идёт трафик устройства, и средняя задержка до сервера">
+        <Tag color="processing">
+          в сети · {routes(d.paths)}
+          {d.rtt_ms ? ` · ${d.rtt_ms} мс` : ''}
+        </Tag>
+      </Tooltip>
+    )
+  }
   return d.sessions > 0 ? <Tag color="processing">в сети · {d.sessions}</Tag> : d.last_seen ? <Typography.Text type="secondary">{dayjs.unix(d.last_seen).fromNow()}</Typography.Text> : '—'
 }
 

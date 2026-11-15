@@ -186,6 +186,10 @@ type deviceState struct {
 	Key      string `json:"key,omitempty"` // password it last connected with
 	Up       int64  `json:"up_bytes,omitempty"`
 	Down     int64  `json:"down_bytes,omitempty"`
+	// KeyAt is when a TurnVK client last sent its own public key (unix
+	// ms, the client's clock); Private is then empty.
+	KeyAt int64 `json:"key_at,omitempty"`
+	New   bool  `json:"-"` // created and not yet given to WireGuard
 }
 
 type keyState struct {

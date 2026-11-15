@@ -3,6 +3,7 @@ package wdtt
 import (
 	"context"
 	"crypto/cipher"
+	"encoding/binary"
 	"errors"
 	"net"
 	"net/netip"
@@ -23,13 +24,13 @@ type keyEntry struct {
 // keyring is replaced as a whole on reload.
 type keyring []keyEntry
 
-func (k keyring) trial(wire, scratch []byte) (keyEntry, bool) {
+func (k keyring) trial(wire, scratch []byte) (keyEntry, int, bool) {
 	for _, e := range k {
-		if _, err := open(e.aead, wire, scratch); err == nil {
-			return e, true
+		if n, err := open(e.aead, wire, scratch); err == nil {
+			return e, n, true
 		}
 	}
-	return keyEntry{}, false
+	return keyEntry{}, 0, false
 }
 
 const (
@@ -47,6 +48,9 @@ var bufPool = sync.Pool{New: func() any { b := make([]byte, maxDatagram); return
 // datagram authenticates under one of the keys; everything else is dropped
 // without a reply, so the port looks closed to scanners.
 type mux struct {
+	// learned: the rates direct paths through each TURN relay settled at.
+	learned LearnedRates
+
 	socks  []*net.UDPConn
 	keys   atomic.Pointer[keyring]
 	accept chan *vconn
@@ -55,6 +59,11 @@ type mux struct {
 
 	mu    sync.Mutex
 	conns map[netip.AddrPort]*vconn
+	paths map[netip.AddrPort]*dpath // direct paths (TurnVK clients)
+
+	// direct handles direct-path messages; nil on servers for the
+	// standard client, which speak DTLS only.
+	direct atomic.Pointer[directHandler]
 
 	tmu    sync.Mutex
 	trials map[netip.Addr]int
@@ -75,7 +84,7 @@ func listenMux(ctx context.Context, addr string, keys keyring) (*mux, error) {
 		return nil, err
 	}
 	m := &mux{socks: socks, accept: make(chan *vconn, acceptBacklog), done: make(chan struct{}),
-		conns: map[netip.AddrPort]*vconn{}, trials: map[netip.Addr]int{}, resets: map[netip.AddrPort]time.Time{}}
+		conns: map[netip.AddrPort]*vconn{}, paths: map[netip.AddrPort]*dpath{}, trials: map[netip.Addr]int{}, resets: map[netip.AddrPort]time.Time{}}
 	m.keys.Store(&keys)
 	for _, s := range socks {
 		_ = s.SetReadBuffer(8 << 20)
@@ -148,20 +157,47 @@ func (m *mux) readLoop(s *net.UDPConn) {
 		from = netip.AddrPortFrom(from.Addr().Unmap(), from.Port())
 		m.mu.Lock()
 		c := m.conns[from]
+		p := m.paths[from]
 		m.mu.Unlock()
 		if c != nil {
 			c.push(bp, n)
 			continue
 		}
 		wire := (*bp)[:n]
+		if p != nil {
+			// A known direct path: no queue, no goroutine hop.
+			if pn, err := open(p.aead, wire, scratch); err == nil {
+				seq := binary.BigEndian.Uint16(wire[2:4])
+				bufPool.Put(bp)
+				if h := m.direct.Load(); h != nil {
+					(*h).packet(p, seq, scratch[:pn])
+				}
+				continue
+			}
+			// Not under the path's key: maybe a new password on the
+			// same relay address; try every key below.
+		}
 		if !looksLikeRTP(wire) || !m.allowTrial(from.Addr()) {
 			bufPool.Put(bp)
 			continue
 		}
 		ks := *m.keys.Load()
-		k, ok := ks.trial(wire, scratch)
+		k, pn, ok := ks.trial(wire, scratch)
 		if !ok {
 			m.authFailed.Add(1)
+			bufPool.Put(bp)
+			continue
+		}
+		if h := m.direct.Load(); h != nil && pn > 0 && isDirect(scratch[0]) {
+			msg := scratch[:pn]
+			if msg[0] == msgHello {
+				(*h).hello(s, from, k, wire[1], append([]byte(nil), msg...))
+			} else {
+				// Data or a ping on a path the server does not know (it
+				// restarted, or dropped the idle path): the client
+				// re-attaches the path with one HELLO.
+				m.sendDirectReset(s, from, k, wire[1])
+			}
 			bufPool.Put(bp)
 			continue
 		}
@@ -196,17 +232,9 @@ func (m *mux) readLoop(s *net.UDPConn) {
 // closes the connection; the client then opens a new session.
 func (m *mux) sendReset(s *net.UDPConn, to netip.AddrPort, k keyEntry, pt byte) {
 	now := time.Now()
-	m.tmu.Lock()
-	if len(m.resets) > 4096 {
-		clear(m.resets)
-	}
-	last, seen := m.resets[to]
-	if seen && now.Sub(last) < time.Second {
-		m.tmu.Unlock()
+	if !m.resetAllowed(to, now) {
 		return
 	}
-	m.resets[to] = now
-	m.tmu.Unlock()
 	rec := []byte{21, 0xfe, 0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0}
 	seq := uint64(1)<<40 | uint64(now.UnixNano())&0xffffffff
 	for i := 0; i < 6; i++ {
@@ -216,6 +244,21 @@ func (m *mux) sendReset(s *net.UDPConn, to netip.AddrPort, k keyEntry, pt byte) 
 	n := newSealer(k.aead, pt).seal(out, rec)
 	_, _ = s.WriteToUDPAddrPort(out[:n], to)
 	m.resetsSent.Add(1)
+}
+
+// resetAllowed limits resets to one per second per address.
+func (m *mux) resetAllowed(to netip.AddrPort, now time.Time) bool {
+	m.tmu.Lock()
+	defer m.tmu.Unlock()
+	if len(m.resets) > 4096 {
+		clear(m.resets)
+	}
+	last, seen := m.resets[to]
+	if seen && now.Sub(last) < time.Second {
+		return false
+	}
+	m.resets[to] = now
+	return true
 }
 
 func (m *mux) newConn(s *net.UDPConn, raddr netip.AddrPort, k keyEntry, pt byte) *vconn {
