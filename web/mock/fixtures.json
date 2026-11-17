@@ -5686,5 +5686,16 @@
   "kind": "turnvk",
   "client": "клиент TurnVK",
   "link": "wdtt://203.0.113.10:56010:56011:9000:mockTurnVKPassword123:AbCdEfGhIjKlMnOp1234"
+ },
+ "/api/stats": {
+  "enabled": true,
+  "limit_mb": 500,
+  "default_mb": 500,
+  "bytes": 38123456,
+  "files": 214,
+  "oldest": 1762560000,
+  "newest": 1763330400,
+  "disk_free": 6442450944,
+  "disk_total": 10737418240
  }
 }

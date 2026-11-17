@@ -88,6 +88,8 @@ type Server struct {
 	kicks  atomic.Int64
 
 	nonces nonceCache // HELLOs seen recently (direct paths)
+
+	stats *stats // TurnVK servers only (stats.go)
 }
 
 type counter struct{ up, down atomic.Int64 }
@@ -180,6 +182,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if cfg.Kind == KindTurnVK {
 		var h directHandler = directServer{s}
 		s.mux.direct.Store(&h)
+		s.stats = newStats(cfg.DataDir)
 	}
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
@@ -228,6 +231,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Lock()
 	s.flushLocked()
 	s.mu.Unlock()
+	s.stats.flush(time.Now(), false)
 	return nil
 }
 
@@ -672,7 +676,14 @@ func (s *Server) housekeeping(ctx context.Context) {
 		st := s.statusLocked()
 		path := s.cfg.StatusFile
 		s.mu.Unlock()
-		s.expirePaths(time.Now())
+		now := time.Now()
+		s.expirePaths(now)
+		if i%12 == 0 {
+			s.stats.serverRecords(st, now)
+		}
+		if i%2 == 0 {
+			s.stats.flush(now, i%12 == 0)
+		}
 		writeStatus(path, st)
 		writeSessions(sessionsFile(path), s.mux.live())
 	}

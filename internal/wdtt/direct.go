@@ -15,6 +15,8 @@ package wdtt
 //	PONG    server -> client
 //	RESET   server -> client  unknown path: send HELLO again
 //	BYE     client -> server  the client closes this path
+//	STATS   client -> server  statistics of the connection (stats.go)
+//	STATSACK server -> client
 //	WireGuard messages (types 1..4) as they are
 //
 // The connection itself is the WireGuard session, end to end between the
@@ -485,6 +487,10 @@ func (s *Server) pathPacket(p *dpath, seq uint16, msg []byte) {
 		}
 	case t == msgFeedback:
 		p.pr.OnFeedback(msg, now.UnixNano())
+	case t == msgStats:
+		if ack, ok := s.stats.clientReport(sess, p.raddr, msg, now); ok {
+			_ = p.send(ack)
+		}
 	case t == msgBye:
 		s.closePath(p, false)
 	case t == msgHello:

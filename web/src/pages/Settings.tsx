@@ -6,6 +6,7 @@ import { usePoll } from '../util'
 import TelegramBot from '../components/TelegramBot'
 import BackupCard, { DiagnosticsCard } from '../components/BackupCard'
 import { UpdateCard } from '../components/Update'
+import StatsCard from '../components/StatsCard'
 import type { Overview } from '../types'
 
 interface SettingsData {
@@ -119,6 +120,7 @@ export default function Settings() {
           <UpdateCard />
           <BackupCard />
           <DiagnosticsCard />
+          <StatsCard />
           <Card title="О панели">
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Версия">{data.version}</Descriptions.Item>
