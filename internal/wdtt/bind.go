@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"golang.zx2c4.com/wireguard/conn"
 )
@@ -227,17 +228,24 @@ func (b *bind) sendDirect(bufs [][]byte, s *session) error {
 // pathStats counts each device's direct paths and averages their RTT.
 func (b *bind) pathStats() (paths, rtt map[string]int) {
 	paths, rtt = map[string]int{}, map[string]int{}
+	// Only paths heard from lately: silent ones are kept for a while
+	// (pathIdle) but carry nothing.
+	live := time.Now().Add(-pathLive).UnixNano()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for dev, ps := range b.devPaths {
-		sum, n := 0, 0
+		sum, n, k := 0, 0, 0
 		for _, s := range ps.list {
+			if s.dp.lastRx.Load() < live {
+				continue
+			}
+			k++
 			if r := int(s.dp.rtt.Load()); r > 0 {
 				sum += r
 				n++
 			}
 		}
-		paths[dev] = len(ps.list)
+		paths[dev] = k
 		if n > 0 {
 			rtt[dev] = sum / n
 		}

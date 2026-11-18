@@ -63,12 +63,17 @@ const (
 	directVersion = 1
 
 	helloSkew = 10 * time.Minute // client clock may be off by this much
-	pathIdle  = 2 * time.Minute  // clients ping every path every 2 s
+	// pathIdle: a path silent this long is dropped. Clients ping every
+	// path every 2 s, but a phone dozing with the screen off pauses for
+	// minutes; its TURN allocation outlives that, so the path is kept and
+	// the phone needs no reset and new HELLO when it wakes.
+	pathIdle = 5 * time.Minute
 	// pathFresh: a path heard from within this carries traffic. Clients
 	// ping every 2 s, so a path that missed two pings is left out (it gets
 	// traffic again as soon as it answers); with none fresh, the pacer
 	// still sends on any live path.
 	pathFresh   = 5 * time.Second
+	pathLive    = 30 * time.Second // a path counted as live in the status
 	pathStall   = 750 * time.Millisecond
 	directChunk = 16 // tests: packets enough to cross paths
 )
