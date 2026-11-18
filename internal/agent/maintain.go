@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Jetvac/wdtt-router/internal/spec"
 )
 
 // Maintain runs every 30 s on the entry. It repairs state that other
@@ -30,6 +32,7 @@ func Maintain(ctx context.Context) error {
 			return err
 		}
 	}
+	restartOutdatedWDTT(ctx, s.Entry)
 	if !s.Firewall.Enabled || !s.Entry.XUI.Enabled || revertPending() || firewallReverted() {
 		return nil
 	}
@@ -102,4 +105,32 @@ func reconcileMaintain(ctx context.Context, want bool) error {
 		return systemctl(ctx, "restart", "wdtt-router-maintain.timer")
 	}
 	return nil
+}
+
+// restartOutdatedWDTT restarts a WDTT server still running the build from
+// before a panel update. Updating the panel replaces the binary and
+// restarts only the panel; the servers run the same binary and would keep
+// the old code (without the features of the update) until the next apply
+// or reboot.
+func restartOutdatedWDTT(ctx context.Context, e *spec.EntrySpec) {
+	for _, w := range e.WDTTServers() {
+		srv := WDTTServerOf(w.Kind)
+		if !unitExists(srv.Unit) || !wdttBinaryChanged(srv) {
+			continue
+		}
+		Logf("%s runs an older build: restarting it", srv.Name)
+		if _, err := installUnit(ctx, srv.Unit, wdttUnitText(srv)); err != nil {
+			Logf("%s: %v", srv.Name, err)
+			continue
+		}
+		if err := systemctl(ctx, "restart", srv.Unit); err != nil {
+			Logf("%s: %v", srv.Name, err)
+			continue
+		}
+		if err := waitActive(ctx, srv.Unit); err != nil {
+			Logf("%s: %v", srv.Name, err)
+			continue
+		}
+		markWDTTBinary(srv)
+	}
 }
