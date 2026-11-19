@@ -43,6 +43,15 @@ const (
 	adjustEvery   = 100 * time.Millisecond
 	baseWindow    = 10 * time.Second // the base delay is the least seen within this
 	queueDelay    = 25 * time.Millisecond
+	// While interactive traffic flows (Interactive): VK's queue is kept
+	// shorter, at some cost to the speed of downloads beside it.
+	tightQueueDelay = 10 * time.Millisecond
+	tightBurst      = 8_000
+	// TightBulkWait: bulk packets that waited longer are dropped then
+	// (instead of the pacers' usual 60 ms).
+	TightBulkWait = 25 * time.Millisecond
+	tightRate     = 20 // small packets a second that make traffic interactive
+	tightHold     = 5 * time.Second
 	quickDelay    = 8 * time.Millisecond
 	// Loss is judged over at least lossJudge packets and must exceed
 	// lossCut: VK's policer drops in bursts and crosses it at once, while
@@ -67,6 +76,9 @@ type PathRate struct {
 	Tokens  float64
 	At      int64       // unix ns of the last refill
 	Limited atomic.Bool // packets waited for this path since the last adjustment
+	// Tight: interactive traffic flows (the pacer sets it): a smaller
+	// burst and a lower queue delay before the rate goes down.
+	Tight atomic.Bool
 
 	mu       sync.Mutex
 	sentSeq  [1024]uint16
@@ -108,14 +120,22 @@ func (r *PathRate) Refill(now int64) {
 		r.Tokens, r.At = pathBurst, now
 		return
 	}
-	r.Tokens = math.Min(pathBurst, r.Tokens+r.Get()*float64(now-r.At)/1e9)
+	r.Tokens = math.Min(r.burst(), r.Tokens+r.Get()*float64(now-r.At)/1e9)
 	r.At = now
 }
 
 // Queued estimates how long what the path sent lately takes to get
 // through (s): the part of its burst it used, at its rate; zero after a
 // pause. Under the pacer's lock, like Tokens.
-func (r *PathRate) Queued() float64 { return math.Max(0, pathBurst-r.Tokens) / r.Get() }
+func (r *PathRate) Queued() float64 { return math.Max(0, r.burst()-r.Tokens) / r.Get() }
+
+// burst is how many bytes the path may send at once after a pause.
+func (r *PathRate) burst() float64 {
+	if r.Tight.Load() {
+		return tightBurst
+	}
+	return pathBurst
+}
 
 // Wait is how long until the path has the tokens for size bytes.
 func (r *PathRate) Wait(size float64) time.Duration {
@@ -200,7 +220,7 @@ func (r *PathRate) OnFeedback(msg []byte, now int64) {
 	case loss > lossCut:
 		r.set(cur * 0.85)
 		r.settled = true
-	case q > float64(queueDelay) && cur > delayFloor:
+	case q > float64(r.queueLimit()) && cur > delayFloor:
 		// Delay alone never takes a path below delayFloor: jitter on
 		// VK's side must not starve it; only real loss goes lower.
 		r.set(math.Max(delayFloor, cur*0.92))
@@ -212,6 +232,43 @@ func (r *PathRate) OnFeedback(msg []byte, now int64) {
 			r.set(cur * growFast)
 		}
 	}
+}
+
+// queueLimit: VK's queue (delay over the base) above which the rate goes
+// down.
+func (r *PathRate) queueLimit() time.Duration {
+	if r.Tight.Load() {
+		return tightQueueDelay
+	}
+	return queueDelay
+}
+
+// Interactive notices traffic that wants a low latency (games, calls): a
+// steady stream of small packets, at least tightRate a second. While it
+// flows, and tightHold after, the pacer keeps queues short (Tight,
+// TightBulkWait). Under the pacer's lock.
+type Interactive struct {
+	from  int64 // start of the current second, unix ns
+	n     int   // small packets in it
+	until int64 // interactive until then
+	// Secs: seconds spent interactive (statistics).
+	Secs atomic.Uint64
+}
+
+// Note counts small packets queued at now and tells whether the traffic
+// is interactive.
+func (t *Interactive) Note(now int64, small int) bool {
+	t.n += small
+	if now-t.from >= int64(time.Second) {
+		if t.n >= tightRate && t.from != 0 {
+			t.until = now + int64(tightHold)
+		}
+		if now < t.until {
+			t.Secs.Add(1)
+		}
+		t.from, t.n = now, 0
+	}
+	return now < t.until
 }
 
 // Seed sets the rate a new path starts at.

@@ -16,7 +16,10 @@ import (
 //     servers when there are: whichever arrives first counts, WireGuard
 //     drops the other as a replay; a relay that stalls does not stall both;
 //   - bulk packets that have waited longer than maxQueueDelay are dropped,
-//     which tells TCP to slow down before a long queue builds.
+//     which tells TCP to slow down before a long queue builds;
+//   - while small packets flow steadily (a game, a call: Interactive)
+//     queues are kept shorter: bulk packets wait at most TightBulkWait, and
+//     each path keeps VK's queue short (PathRate.Tight).
 const (
 	maxQueueDelay = 60 * time.Millisecond
 	maxQueueBytes = 4 << 20
@@ -46,6 +49,7 @@ type pacer struct {
 	wake    chan struct{}
 	dropped atomic.Uint64
 	other   []*session // pickCopy's scratch, under mu
+	inter   Interactive
 }
 
 func newPacer(b *bind, dev string) *pacer {
@@ -58,6 +62,7 @@ func newPacer(b *bind, dev string) *pacer {
 func (p *pacer) enqueue(bufs [][]byte) {
 	now := time.Now().UnixNano()
 	p.mu.Lock()
+	small := 0
 	for _, x := range bufs {
 		bp := bufPool.Get().(*[]byte)
 		if len(x) > len(*bp) {
@@ -67,6 +72,7 @@ func (p *pacer) enqueue(bufs [][]byte) {
 		q := queued{bp, copy(*bp, x), now}
 		if len(x) < smallPacket {
 			p.hi = append(p.hi, q)
+			small++
 		} else if p.loBytes+len(x) <= maxQueueBytes {
 			p.lo = append(p.lo, q)
 			p.loBytes += len(x)
@@ -75,6 +81,7 @@ func (p *pacer) enqueue(bufs [][]byte) {
 			p.dropped.Add(1)
 		}
 	}
+	p.inter.Note(now, small)
 	p.mu.Unlock()
 	select {
 	case p.wake <- struct{}{}:
@@ -158,7 +165,9 @@ func (p *pacer) step(out []sendItem) ([]sendItem, time.Duration) {
 		return out, 20 * time.Millisecond
 	}
 	p.idleFrom = 0
+	tight := p.inter.Note(now, 0)
 	for _, s := range list {
+		s.dp.pr.Tight.Store(tight)
 		s.dp.pr.Refill(now)
 	}
 	p.dropOld(now, false)
@@ -235,6 +244,9 @@ func (p *pacer) step(out []sendItem) ([]sendItem, time.Duration) {
 // with no path at all, small ones that waited ten times as long).
 func (p *pacer) dropOld(now int64, noPath bool) {
 	cut := now - int64(maxQueueDelay)
+	if p.inter.Note(now, 0) {
+		cut = now - int64(TightBulkWait)
+	}
 	for len(p.lo) > 0 && p.lo[0].at < cut {
 		p.loBytes -= p.lo[0].n
 		bufPool.Put(p.lo[0].b)
