@@ -222,20 +222,26 @@ func (p *pacer) step(out []sendItem) ([]sendItem, time.Duration) {
 		best = min(best, pr.Wait(float64(head+MaxWireOverhead)))
 	}
 	if best == time.Duration(math.MaxInt64) {
-		// No fresh path: send on any live one rather than not at all.
+		// No fresh path: send on a live one rather than not at all, the
+		// one heard from last (an idle phone's routes ping only every
+		// 25 s, all together).
+		var last *session
 		for _, s := range list {
-			if !s.dead.Load() {
-				for _, q := range p.hi {
-					out = append(out, sendItem{s: s, q: q})
-				}
-				for _, q := range p.lo {
-					out = append(out, sendItem{s: s, q: q})
-				}
-				p.hi, p.lo, p.loBytes = nil, nil, 0
-				return out, 0
+			if !s.dead.Load() && (last == nil || s.dp.lastRx.Load() > last.dp.lastRx.Load()) {
+				last = s
 			}
 		}
-		return out, 20 * time.Millisecond
+		if last == nil {
+			return out, 20 * time.Millisecond
+		}
+		for _, q := range p.hi {
+			out = append(out, sendItem{s: last, q: q})
+		}
+		for _, q := range p.lo {
+			out = append(out, sendItem{s: last, q: q})
+		}
+		p.hi, p.lo, p.loBytes = nil, nil, 0
+		return out, 0
 	}
 	return out, max(best, 200*time.Microsecond)
 }
