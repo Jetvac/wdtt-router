@@ -2,6 +2,7 @@ package wdtt
 
 import (
 	"encoding/binary"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -323,5 +324,27 @@ func TestPacerPickShortestIdle(t *testing.T) {
 	p := &pacer{}
 	if p.pick([]*session{slow, fast}, 100, now, now-int64(pathFresh), nil, false) != fast {
 		t.Fatal("small packet not on the path with the shorter round trip")
+	}
+}
+
+// The copy of a small packet goes through another VK TURN server, even
+// when a path on the same one has the shorter round trip.
+func TestPacerCopyOtherRelay(t *testing.T) {
+	now := time.Now().UnixNano()
+	fresh := now - int64(pathFresh)
+	a1, a2, b := testPath(10, now), testPath(12, now), testPath(30, now)
+	a1.dp.raddr = netip.MustParseAddrPort("1.1.1.1:19302")
+	a2.dp.raddr = netip.MustParseAddrPort("1.1.1.1:19303")
+	b.dp.raddr = netip.MustParseAddrPort("2.2.2.2:19302")
+	list := []*session{a1, a2, b}
+	p := &pacer{}
+	if p.pick(list, 100, now, fresh, nil, false) != a1 {
+		t.Fatal("first copy not on the shortest path")
+	}
+	if p.pickCopy(list, 100, now, fresh, a1) != b {
+		t.Fatal("second copy not through the other relay")
+	}
+	if p.pickCopy(list[:2], 100, now, fresh, a1) != a2 {
+		t.Fatal("no copy with a single relay")
 	}
 }

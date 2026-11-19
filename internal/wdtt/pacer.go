@@ -12,15 +12,16 @@ import (
 // the rate its PathRate allows (pace.go), so the queue forms here, where
 // it can be managed:
 //   - small packets (pings, TCP ACKs, DNS, games, calls) go first, and the
-//     smallest go on two paths at once: whichever arrives first counts,
-//     WireGuard drops the other as a replay;
+//     smallest go on two paths at once, through two different VK TURN
+//     servers when there are: whichever arrives first counts, WireGuard
+//     drops the other as a replay; a relay that stalls does not stall both;
 //   - bulk packets that have waited longer than maxQueueDelay are dropped,
 //     which tells TCP to slow down before a long queue builds.
 const (
 	maxQueueDelay = 60 * time.Millisecond
 	maxQueueBytes = 4 << 20
 	smallPacket   = 512 // smaller packets are latency-sensitive
-	dupPacket     = 256 // smaller packets go on two paths
+	dupPacket     = 400 // smaller packets go on two paths (most game packets)
 	bulkRun       = 4   // bulk packets kept on one path in a row
 )
 
@@ -44,6 +45,7 @@ type pacer struct {
 
 	wake    chan struct{}
 	dropped atomic.Uint64
+	other   []*session // pickCopy's scratch, under mu
 }
 
 func newPacer(b *bind, dev string) *pacer {
@@ -170,7 +172,7 @@ func (p *pacer) step(out []sendItem) ([]sendItem, time.Duration) {
 		}
 		out = append(out, sendItem{s: s, q: q})
 		if q.n < dupPacket {
-			if s2 := p.pick(list, q.n, now, fresh, s, false); s2 != nil {
+			if s2 := p.pickCopy(list, q.n, now, fresh, s); s2 != nil {
 				out = append(out, sendItem{s: s2, q: q, dup: true})
 			}
 		}
@@ -284,6 +286,23 @@ func (p *pacer) pick(list []*session, n int, now, fresh int64, skip *session, bu
 	}
 	best.dp.pr.Tokens -= size
 	return best
+}
+
+// pickCopy picks the path for the copy of a small packet that went on s:
+// through another VK TURN server if one can send now (a relay that stalls
+// does not stall both copies), else any other path.
+func (p *pacer) pickCopy(list []*session, n int, now, fresh int64, s *session) *session {
+	p.other = p.other[:0]
+	relay := s.dp.raddr.Addr()
+	for _, x := range list {
+		if x.dp != nil && x.dp.raddr.Addr() != relay {
+			p.other = append(p.other, x)
+		}
+	}
+	if x := p.pick(p.other, n, now, fresh, nil, false); x != nil {
+		return x
+	}
+	return p.pick(list, n, now, fresh, s, false)
 }
 
 // pathReport reads the loss report a client appends to its PING:

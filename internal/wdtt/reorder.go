@@ -41,6 +41,9 @@ func WGData(p []byte) (idx uint32, counter uint64, ok bool) {
 type Reorder[T any] struct {
 	Out  func(T)
 	Hold time.Duration // 0: ReorderHold
+	// Waited, if set, gets how long each held item waited (called with
+	// the lock held: it must not block or call back).
+	Waited func(time.Duration)
 
 	mu      sync.Mutex
 	streams map[uint32]*reorderStream[T]
@@ -55,7 +58,7 @@ type Reorder[T any] struct {
 
 type reorderStream[T any] struct {
 	next  uint64 // the counter expected next
-	held  map[uint64]T
+	held  map[uint64]heldItem[T]
 	timer *time.Timer
 	used  time.Time
 }
@@ -78,7 +81,7 @@ func (r *Reorder[T]) Push(idx uint32, counter uint64, item T) {
 	}
 	s := r.streams[idx]
 	if s == nil {
-		s = &reorderStream[T]{next: counter, held: map[uint64]T{}}
+		s = &reorderStream[T]{next: counter, held: map[uint64]heldItem[T]{}}
 		r.streams[idx] = s
 	}
 	s.used = now
@@ -86,19 +89,19 @@ func (r *Reorder[T]) Push(idx uint32, counter uint64, item T) {
 	case counter == s.next:
 		out = append(out, item)
 		s.next++
-		out = s.drain(out)
+		out = s.drain(out, r.Waited, now)
 	case counter < s.next:
 		r.Late++
 		out = append(out, item) // late or a duplicate: WireGuard decides
 	case counter-s.next > reorderJump || len(s.held) >= reorderMax:
 		// Far ahead, or too much held: give up on the gap.
-		out = s.flush(out)
+		out = s.flush(out, r.Waited, now)
 		r.Gaps++
 		out = append(out, item)
 		s.next = counter + 1
 	default:
 		if _, dup := s.held[counter]; !dup {
-			s.held[counter] = item
+			s.held[counter] = heldItem[T]{item, now}
 			r.Held++
 		}
 		if s.timer == nil {
@@ -127,7 +130,7 @@ func (r *Reorder[T]) expire(idx uint32, s *reorderStream[T]) {
 	var out []T
 	if len(s.held) > 0 {
 		r.Gaps++
-		out = s.flush(nil)
+		out = s.flush(nil, r.Waited, time.Now())
 	}
 	r.handOut(out)
 }
@@ -147,21 +150,29 @@ func (r *Reorder[T]) handOut(out []T) {
 	}
 }
 
+type heldItem[T any] struct {
+	it T
+	at time.Time
+}
+
 // drain appends the held packets that follow on now.
-func (s *reorderStream[T]) drain(out []T) []T {
+func (s *reorderStream[T]) drain(out []T, waited func(time.Duration), now time.Time) []T {
 	for {
-		it, ok := s.held[s.next]
+		h, ok := s.held[s.next]
 		if !ok {
 			return out
 		}
 		delete(s.held, s.next)
-		out = append(out, it)
+		out = append(out, h.it)
+		if waited != nil {
+			waited(now.Sub(h.at))
+		}
 		s.next++
 	}
 }
 
 // flush appends everything held, in counter order, and moves past it.
-func (s *reorderStream[T]) flush(out []T) []T {
+func (s *reorderStream[T]) flush(out []T, waited func(time.Duration), now time.Time) []T {
 	if len(s.held) == 0 {
 		return out
 	}
@@ -171,7 +182,11 @@ func (s *reorderStream[T]) flush(out []T) []T {
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	for _, k := range keys {
-		out = append(out, s.held[k])
+		h := s.held[k]
+		out = append(out, h.it)
+		if waited != nil {
+			waited(now.Sub(h.at))
+		}
 		delete(s.held, k)
 	}
 	s.next = keys[len(keys)-1] + 1
