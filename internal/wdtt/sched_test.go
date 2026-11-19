@@ -311,3 +311,17 @@ func TestPathStall(t *testing.T) {
 		t.Fatal("client without FEEDBACK left out by pathStall")
 	}
 }
+
+// An idle path with the shorter round trip carries small packets even when
+// the other one is paced at a lower rate (the spare tokens of a slow path
+// are no reason to prefer it).
+func TestPacerPickShortestIdle(t *testing.T) {
+	now := time.Now().UnixNano()
+	fast, slow := testPath(20, now), testPath(40, now)
+	slow.dp.pr.Seed(60_000)
+	fast.dp.pr.Seed(400_000)
+	p := &pacer{}
+	if p.pick([]*session{slow, fast}, 100, now, now-int64(pathFresh), nil, false) != fast {
+		t.Fatal("small packet not on the path with the shorter round trip")
+	}
+}

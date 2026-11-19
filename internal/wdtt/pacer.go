@@ -260,8 +260,10 @@ func (p *pacer) pick(list []*session, n int, now, fresh int64, skip *session, bu
 		if s == skip || s.dead.Load() || pr.Tokens < size || !s.dp.usable(now, fresh) {
 			continue
 		}
-		// Half the round trip, less a bonus for spare tokens (spreads load).
-		score := float64(s.dp.rtt.Load())/2000 - pr.Tokens/pr.Get()
+		// Half the round trip plus what waits ahead of the packet: an
+		// idle path with the shortest round trip first; under load the
+		// spare paths (spreads it).
+		score := float64(s.dp.rtt.Load())/2000 + pr.Queued()
 		if best == nil || score < bestScore {
 			best, bestScore = s, score
 		}

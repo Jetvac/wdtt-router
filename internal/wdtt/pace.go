@@ -112,6 +112,11 @@ func (r *PathRate) Refill(now int64) {
 	r.At = now
 }
 
+// Queued estimates how long what the path sent lately takes to get
+// through (s): the part of its burst it used, at its rate; zero after a
+// pause. Under the pacer's lock, like Tokens.
+func (r *PathRate) Queued() float64 { return math.Max(0, pathBurst-r.Tokens) / r.Get() }
+
 // Wait is how long until the path has the tokens for size bytes.
 func (r *PathRate) Wait(size float64) time.Duration {
 	need := size - r.Tokens

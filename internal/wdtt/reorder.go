@@ -44,7 +44,11 @@ type Reorder[T any] struct {
 
 	mu      sync.Mutex
 	streams map[uint32]*reorderStream[T]
-	pushes  int
+	// outMu keeps Out calls in order: it is taken before mu is let go,
+	// so that items one Push (or timer) hands on are out before those of
+	// the next, which may run on another route's goroutine.
+	outMu  sync.Mutex
+	pushes int
 
 	Held, Late, Gaps uint64 // counters, under mu
 }
@@ -109,10 +113,7 @@ func (r *Reorder[T]) Push(idx uint32, counter uint64, item T) {
 		s.timer.Stop()
 		s.timer = nil
 	}
-	r.mu.Unlock()
-	for _, it := range out {
-		r.Out(it)
-	}
+	r.handOut(out)
 }
 
 // expire: the gap did not fill in time; send what is held, in order.
@@ -128,7 +129,19 @@ func (r *Reorder[T]) expire(idx uint32, s *reorderStream[T]) {
 		r.Gaps++
 		out = s.flush(nil)
 	}
+	r.handOut(out)
+}
+
+// handOut lets mu go and calls Out with each item, in order with the other
+// calls. r.mu is held.
+func (r *Reorder[T]) handOut(out []T) {
+	if len(out) == 0 {
+		r.mu.Unlock()
+		return
+	}
+	r.outMu.Lock()
 	r.mu.Unlock()
+	defer r.outMu.Unlock()
 	for _, it := range out {
 		r.Out(it)
 	}
