@@ -109,6 +109,10 @@ type dpath struct {
 	tx     *sealer
 	sess   atomic.Pointer[session]
 	rtt    atomic.Int32 // ms, as measured by the client
+	// lat: the round trip a small packet should expect, jitter included
+	// (smoothed rtt + 2 mean deviations, jitter.go), ms; 0 until known.
+	lat atomic.Int32
+	jit jitter
 	lastRx atomic.Int64 // unix nanoseconds
 	// pending: when the server first sent on the path after it last heard
 	// from it (unix ns); see usable.
@@ -476,7 +480,11 @@ func (s *Server) pathPacket(p *dpath, seq uint16, msg []byte) {
 		s.bind.deliver(sess, msg)
 	case t == msgPing:
 		if len(msg) >= 12 {
-			p.rtt.Store(int32(binary.BigEndian.Uint16(msg[10:12])))
+			r := int32(binary.BigEndian.Uint16(msg[10:12]))
+			p.rtt.Store(r)
+			if r > 0 {
+				p.lat.Store(p.jit.add(r))
+			}
 		}
 		if recv, lost, ok := pathReport(msg); ok {
 			p.pr.Report(recv, lost, p.rtt.Load())

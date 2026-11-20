@@ -45,6 +45,8 @@ export interface HardeningStatus {
   root_keys: number
   auto_updates: boolean
   reboot_required: boolean
+  /** Scheduled jobs that empty root's authorized_keys, "job → script". */
+  key_wipers?: string[]
 }
 
 export interface Hardening {

@@ -68,6 +68,9 @@ type HardeningStatus struct {
 	RootKeys        int    `json:"root_keys"`
 	AutoUpdates     bool   `json:"auto_updates"`
 	RebootRequired  bool   `json:"reboot_required"`
+	// KeyWipers: scheduled jobs that empty root's authorized_keys (a
+	// provider's leftover install script), "job → script".
+	KeyWipers []string `json:"key_wipers,omitempty"`
 }
 
 // MeshSpec describes Cloudflare Mesh enrolment of the node.

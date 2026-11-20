@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { App, Button, Input, List, Popconfirm, Space, Switch, Tag, Typography } from 'antd'
+import { Alert, App, Button, Input, List, Popconfirm, Space, Switch, Tag, Typography } from 'antd'
 import { DeleteOutlined, KeyOutlined } from '@ant-design/icons'
 import { patch, post } from '../api'
 import { useJobs } from './Jobs'
@@ -43,6 +43,25 @@ export default function HardeningPanel({ node, reload }: { node: NodeView; reloa
 
   return (
     <Space orientation="vertical" size={10} style={{ width: '100%' }}>
+      {!!st?.key_wipers?.length && (
+        <Alert
+          type="warning"
+          showIcon
+          title="Задание по расписанию стирает SSH-ключи root"
+          description={
+            <>
+              <div>Ключ панели и приложения будет пропадать, и сервер придётся добавлять заново. Обычно это скрипт установки, который провайдер забыл удалить. Отключите его на сервере:</div>
+              {st.key_wipers.map((w) => (
+                <div key={w} className="mono" style={{ fontSize: 12, wordBreak: 'break-all' }}>{w}</div>
+              ))}
+              <div style={{ marginTop: 6 }}>Для таймера systemd: <span className="mono">systemctl disable --now имя.timer</span>, затем удалите сам скрипт.</div>
+            </>
+          }
+        />
+      )}
+      {st?.ssh_password_auth && !h.ssh_keys_only && (
+        <Typography.Text type="secondary">Пароль root открыт для подбора из интернета. Если у вас есть SSH-ключ (или ключ приложения на ПК), включите вход только по ключу.</Typography.Text>
+      )}
       <Space wrap>
         <Switch
           checked={!!h.ssh_keys_only}

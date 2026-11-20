@@ -110,6 +110,15 @@ func (a *App) observe(ctx context.Context, n Node, err error) {
 		if h.RebootRequired != was {
 			_ = a.Store.SetSetting(key, map[bool]string{true: "1", false: "0"}[h.RebootRequired])
 		}
+		// A job that wipes root's SSH keys: told once per set of jobs.
+		wkey := fmt.Sprintf("node:%d:key_wipers", n.ID)
+		jobs := strings.Join(h.KeyWipers, "; ")
+		if jobs != a.Store.Setting(wkey, "") {
+			if jobs != "" {
+				a.event(EventSecurity, "⚠️ На сервере %s задание по расписанию стирает SSH-ключи root (%s): ключ панели и приложения будет пропадать. Скорее всего, это оставшийся скрипт установки от провайдера — отключите его", n.Name, jobs)
+			}
+			_ = a.Store.SetSetting(wkey, jobs)
+		}
 	}
 	if n.Local && a.entrySettings().WDTTEnabled && n.Status.WDTTInstalled {
 		down := n.Status.WDTTActive != "active"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
 )
@@ -226,7 +227,7 @@ func reconcileAutoUpdates(ctx context.Context, on bool, changed *[]string) error
 }
 
 func inspectHardening(ctx context.Context) *spec.HardeningStatus {
-	h := &spec.HardeningStatus{RootKeys: countKeys(rootKeys), RebootRequired: exists("/var/run/reboot-required")}
+	h := &spec.HardeningStatus{RootKeys: countKeys(rootKeys), RebootRequired: exists("/var/run/reboot-required"), KeyWipers: cachedKeyWipers(time.Now())}
 	if have("sshd") {
 		eff := sshdEffective(ctx)
 		h.SSHPasswordAuth = eff["passwordauthentication"] != "no" || eff["kbdinteractiveauthentication"] == "yes"

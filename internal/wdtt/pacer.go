@@ -283,7 +283,14 @@ func (p *pacer) pick(list []*session, n int, now, fresh int64, skip *session, bu
 		// Half the round trip plus what waits ahead of the packet: an
 		// idle path with the shortest round trip first; under load the
 		// spare paths (spreads it).
-		score := float64(s.dp.rtt.Load())/2000 + pr.Queued()
+		// Small packets (games, calls) count on the round trip jitter
+		// included: a path whose last ping was lucky but which often
+		// spikes is not the closest for them.
+		rtt := s.dp.rtt.Load()
+		if l := s.dp.lat.Load(); !bulk && l > 0 {
+			rtt = l
+		}
+		score := float64(rtt)/2000 + pr.Queued()
 		if best == nil || score < bestScore {
 			best, bestScore = s, score
 		}
