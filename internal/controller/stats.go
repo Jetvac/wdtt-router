@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/agent"
@@ -56,10 +55,8 @@ func readStatsInfo() statsInfo {
 	}
 	// The disk the statistics are on (the data directory's parent exists
 	// even before the first record).
-	var fs syscall.Statfs_t
-	if syscall.Statfs(filepath.Dir(dir), &fs) == nil {
-		in.DiskFree = int64(fs.Bavail) * int64(fs.Bsize)
-		in.DiskTotal = int64(fs.Blocks) * int64(fs.Bsize)
+	if free, total, ok := agent.DiskSpace(filepath.Dir(dir)); ok {
+		in.DiskFree, in.DiskTotal = free, total
 	}
 	return in
 }

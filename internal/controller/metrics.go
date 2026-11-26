@@ -106,7 +106,19 @@ func (a *App) getMetrics(w http.ResponseWriter, r *http.Request, s auth.Session)
 		}
 		prow.Close()
 	}
-	out := map[string]any{"hours": hours, "bucket": bucket, "ping": ping, "nodes": map[string][]seriesPoint{}}
+	// The chain tunnel's round trip (node -1, see observeLink).
+	linkPing := []pingPoint{}
+	lrow, err := a.Store.DB.Query(`SELECT (at/?)*? AS b, AVG(ping_ms) FROM metrics WHERE node_id=-1 AND ping_ms>=0 AND at>=? GROUP BY b ORDER BY b`, bucket, bucket, from)
+	if err == nil {
+		for lrow.Next() {
+			var p pingPoint
+			if lrow.Scan(&p.At, &p.Ms) == nil {
+				linkPing = append(linkPing, p)
+			}
+		}
+		lrow.Close()
+	}
+	out := map[string]any{"hours": hours, "bucket": bucket, "ping": ping, "link_ping": linkPing, "nodes": map[string][]seriesPoint{}}
 	byNode := out["nodes"].(map[string][]seriesPoint)
 	for id, pts := range nodes {
 		byNode[strconv.FormatInt(id, 10)] = pts

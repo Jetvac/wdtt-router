@@ -101,18 +101,18 @@ type directHandler interface {
 
 // dpath is one TURN allocation of a TurnVK client.
 type dpath struct {
-	m      *mux
-	sock   *net.UDPConn
-	raddr  netip.AddrPort
-	keyID  string
-	aead   cipher.AEAD
-	tx     *sealer
-	sess   atomic.Pointer[session]
-	rtt    atomic.Int32 // ms, as measured by the client
+	m     *mux
+	sock  *net.UDPConn
+	raddr netip.AddrPort
+	keyID string
+	aead  cipher.AEAD
+	tx    *sealer
+	sess  atomic.Pointer[session]
+	rtt   atomic.Int32 // ms, as measured by the client
 	// lat: the round trip a small packet should expect, jitter included
 	// (smoothed rtt + 2 mean deviations, jitter.go), ms; 0 until known.
-	lat atomic.Int32
-	jit jitter
+	lat    atomic.Int32
+	jit    jitter
 	lastRx atomic.Int64 // unix nanoseconds
 	// pending: when the server first sent on the path after it last heard
 	// from it (unix ns); see usable.

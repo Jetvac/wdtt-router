@@ -7,6 +7,7 @@ import { navigate } from '../App'
 import { useJobs } from '../components/Jobs'
 import type { NodeView, Overview } from '../types'
 import { HealthBadge, MeshTag, usePoll } from '../util'
+import { ChainLinkCard } from '../components/ChainLink'
 
 export default function Chain() {
   const { data, reload } = usePoll<Overview>('/api/overview')
@@ -68,6 +69,7 @@ export default function Chain() {
           <>
             Трафик клиентов шифруется на сервере панели отдельно для каждого звена («луковица», VLESS Encryption с постквантовым обменом ключей) и идёт по Cloudflare Mesh.
             Каждый сервер знает только Mesh-адрес следующего звена и не видит содержимого — расшифровать его может только выходной сервер. Публичные адреса серверов друг другу неизвестны.
+            UDP клиентов может идти по отдельному туннелю WireGuard внутри того же Mesh: он быстрее для DNS, звонков и QUIC, а Xray остаётся запасным путём.
           </>
         }
       />
@@ -159,6 +161,7 @@ export default function Chain() {
           </Card>
         </Col>
       </Row>
+      {data.chain.length >= 2 && data.link && <ChainLinkCard link={data.link} probe={data.probe} onJob={(id) => track(id, () => reload())} />}
     </Space>
   )
 }

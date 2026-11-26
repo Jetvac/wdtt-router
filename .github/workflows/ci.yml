@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, rewrite-v1]
   pull_request:
 
 permissions:
@@ -27,6 +27,13 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal web)"
       - run: go vet ./...
       - run: go test ./...
+      # The chain tunnel end to end: the real service and the agent's rules
+      # in network namespaces (needs root; skips where TPROXY is missing).
+      - name: Chain tunnel in network namespaces
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nftables iputils-ping
+          go test -c -o /tmp/agent.test ./internal/agent
+          sudo WDTT_NETNS_TEST=1 /tmp/agent.test -test.run TestNetnsLink -test.v -test.count=1
       - run: CGO_ENABLED=0 go build -o /tmp/wdtt-router ./cmd/wdtt-router
       - run: GOOS=windows go vet ./cmd/wdtt-desktop ./internal/desktop
       - run: GOOS=windows CGO_ENABLED=0 go build -o /tmp/wdtt-router-app.exe ./cmd/wdtt-desktop

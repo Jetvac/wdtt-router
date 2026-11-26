@@ -6,6 +6,7 @@
 package spec
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -38,6 +39,84 @@ type NodeSpec struct {
 	Hardening HardeningSpec `json:"hardening"`
 	// Bot runs the Telegram bot on this node.
 	Bot *BotSpec `json:"bot,omitempty"`
+	// Link is the chain tunnel (docs/chain-link.md); nil when it is off.
+	Link *LinkSpec `json:"link,omitempty"`
+}
+
+// Chain tunnel modes. The entry's mode decides what goes through the
+// tunnel; the other servers only carry it.
+const (
+	LinkCheck = "check" // the tunnel is up, client traffic stays on Xray
+	LinkUDP   = "udp"   // client UDP and ICMP go through the tunnel
+	LinkOn    = "on"    // exit and relay: carry the tunnel
+)
+
+// LinkSpec is one server's part of the chain tunnel: a WireGuard link
+// between the entry and the exit inside Mesh. Relays pass its datagrams on
+// without keys. The tunnel uses UDP on the same port number as the hop's
+// TCP inbound.
+type LinkSpec struct {
+	Mode string `json:"mode"`
+	// Port: UDP port on this server's Mesh address (exit and relay).
+	Port int `json:"port,omitempty"`
+	// Next: where this server sends the tunnel (entry: the first hop after
+	// it; relay: the next one).
+	Next *NextHop `json:"next,omitempty"`
+	// WireGuard keys (base64), entry and exit only: this side's private
+	// key, the other side's public key, and the link's preshared key.
+	PrivateKey string `json:"private_key,omitempty"`
+	PeerKey    string `json:"peer_key,omitempty"`
+	PSK        string `json:"psk,omitempty"`
+	// MTU of the tunnel interface on the entry and the exit: the smallest
+	// MTU of the entry's WDTT servers, so that nothing the tunnel carries is
+	// too big for a client and the entry never answers a server on the
+	// Internet with ICMP from its own address.
+	MTU int `json:"mtu,omitempty"`
+}
+
+// FeatureLink: the agent can run the chain tunnel. The panel offers the
+// tunnel only when every server of the chain reports it.
+const FeatureLink = "link"
+
+// LinkStatus is what the tunnel service reports (agent Status.Link).
+type LinkStatus struct {
+	Role      string `json:"role"`
+	Mode      string `json:"mode,omitempty"`
+	Version   string `json:"version"`
+	StartedAt int64  `json:"started_at"`
+	UpdatedAt int64  `json:"updated_at"`
+	// Peer: where the other side's datagrams come from (exit, relay) or go
+	// to (entry).
+	Peer string `json:"peer,omitempty"`
+	// HandshakeAge: seconds since WireGuard's last handshake (-1: none).
+	HandshakeAge int `json:"handshake_age"`
+	// Entry only: the probes over the last minute, the path, the checks.
+	Healthy  bool    `json:"healthy"`
+	Problem  string  `json:"problem,omitempty"`
+	Routing  bool    `json:"routing"` // client UDP goes through the tunnel now
+	RTT50    float64 `json:"rtt_p50_ms,omitempty"`
+	RTT95    float64 `json:"rtt_p95_ms,omitempty"`
+	Loss     float64 `json:"loss,omitempty"`
+	MeshMTU  int     `json:"mesh_mtu,omitempty"`
+	Datagram int     `json:"datagram,omitempty"` // largest datagram sent now
+	// Confirmed: the largest datagram a probe saw cross the path.
+	Confirmed int     `json:"confirmed,omitempty"`
+	DNSms     float64 `json:"dns_ms,omitempty"`
+	DNSAt     int64   `json:"dns_at,omitempty"`
+	DNSError  string  `json:"dns_error,omitempty"`
+	// The last change of path for client UDP: when, to "link" or "xray",
+	// and why; HeldUntil: UDP stays on Xray after too many changes.
+	SwitchAt  int64  `json:"switch_at,omitempty"`
+	SwitchTo  string `json:"switch_to,omitempty"`
+	SwitchWhy string `json:"switch_why,omitempty"`
+	HeldUntil int64  `json:"held_until,omitempty"`
+	RouteErr  string `json:"route_error,omitempty"`
+	// Traffic of the tunnel (datagrams on the wire, both ways).
+	RxBytes uint64 `json:"rx_bytes"`
+	TxBytes uint64 `json:"tx_bytes"`
+	Split   uint64 `json:"split,omitempty"`   // messages sent in parts
+	Joined  uint64 `json:"joined,omitempty"`  // messages put together
+	Expired uint64 `json:"expired,omitempty"` // messages a part of which never came
 }
 
 // BotSpec is the Telegram bot. It needs no open port: it polls Telegram and
@@ -336,6 +415,9 @@ func (s *NodeSpec) Validate() error {
 			return errors.New("invalid local proxy settings")
 		}
 	}
+	if err := s.validateLink(); err != nil {
+		return err
+	}
 	if b := s.Bot; b != nil {
 		u, err := url.Parse(b.PanelURL)
 		if !reBotToken.MatchString(b.Token) || err != nil || u.Scheme != "https" || u.Host == "" || !reFingerprint.MatchString(b.PanelFingerprint) || len(b.APIToken) < 32 {
@@ -453,6 +535,11 @@ type Status struct {
 
 	Hardening *HardeningStatus `json:"hardening,omitempty"`
 
+	// Features of this agent (FeatureLink).
+	Features []string `json:"features,omitempty"`
+	// Link: the chain tunnel service, when it runs here.
+	Link *LinkStatus `json:"link,omitempty"`
+
 	Problems []string `json:"problems"`
 }
 
@@ -473,7 +560,58 @@ type ProbeResult struct {
 	UDPOK  bool   `json:"udp_ok"`
 	UDPms  int64  `json:"udp_ms"`
 	Error  string `json:"error,omitempty"`
+	// SpeedMbps: a download through Xray (only when asked for).
+	SpeedMbps float64 `json:"speed_mbps,omitempty"`
+	// Link: the same checks through the chain tunnel, when it is up.
+	Link *LinkProbe `json:"link,omitempty"`
+}
+
+// LinkProbe is the chain check through the tunnel: a DNS query and an
+// HTTPS request to Cloudflare, and a download when asked for.
+type LinkProbe struct {
+	OK        bool    `json:"ok"`
+	ExitIP    string  `json:"exit_ip,omitempty"`
+	DNSms     int64   `json:"dns_ms,omitempty"`
+	TCPms     int64   `json:"tcp_ms,omitempty"`
+	SpeedMbps float64 `json:"speed_mbps,omitempty"`
+	Error     string  `json:"error,omitempty"`
 }
 
 // ValidBotToken reports whether s looks like a Telegram bot token.
 func ValidBotToken(s string) bool { return reBotToken.MatchString(s) }
+
+func validWGKey(k string) bool {
+	b, err := base64.StdEncoding.DecodeString(k)
+	return err == nil && len(b) == 32
+}
+
+// validateLink checks the chain tunnel part of the spec.
+func (s *NodeSpec) validateLink() error {
+	l := s.Link
+	if l == nil {
+		return nil
+	}
+	keys := validWGKey(l.PrivateKey) && validWGKey(l.PeerKey) && validWGKey(l.PSK)
+	mtu := l.MTU >= 1200 && l.MTU <= 1340
+	next := l.Next != nil && MeshIP(l.Next.Addr) && validPort(l.Next.Port)
+	switch s.Role {
+	case RoleEntry:
+		if (l.Mode != LinkCheck && l.Mode != LinkUDP) || !keys || !mtu || !next || l.Port != 0 {
+			return errors.New("invalid chain tunnel settings (entry)")
+		}
+	case RoleExit:
+		if l.Mode != LinkOn || !keys || !mtu || !validPort(l.Port) || l.Next != nil {
+			return errors.New("invalid chain tunnel settings (exit)")
+		}
+	case RoleRelay:
+		if l.Mode != LinkOn || !validPort(l.Port) || !next || l.PrivateKey != "" || l.PeerKey != "" || l.PSK != "" {
+			return errors.New("invalid chain tunnel settings (relay)")
+		}
+	default:
+		return errors.New("the chain tunnel runs only on chain servers")
+	}
+	if s.Role != RoleEntry && (s.Hop == nil || l.Port != s.Hop.Port) {
+		return errors.New("the chain tunnel uses the hop's port")
+	}
+	return nil
+}

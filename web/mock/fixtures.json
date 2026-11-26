@@ -275,7 +275,16 @@
    "at": "2026-11-07T09:08:46Z",
    "exit_node": "exit-de",
    "expected_ip": "198.51.100.20",
-   "match": true
+   "match": true,
+   "speed_mbps": 38.5,
+   "link": {
+    "ok": true,
+    "exit_ip": "198.51.100.20",
+    "dns_ms": 58,
+    "tcp_ms": 182,
+    "speed_mbps": 41.2
+   },
+   "link_match": true
   },
   "services": {
    "wdtt_enabled": true,
@@ -295,7 +304,46 @@
     "mtu": 1280
    }
   },
-  "version": "1.0.0-rc1"
+  "version": "1.0.0-rc1",
+  "link": {
+   "mode": "check",
+   "ready": true,
+   "entry": {
+    "role": "entry",
+    "mode": "check",
+    "version": "mock",
+    "started_at": 1795687023,
+    "updated_at": 1795690623,
+    "peer": "100.96.0.17:41000",
+    "handshake_age": 34,
+    "healthy": true,
+    "routing": false,
+    "rtt_p50_ms": 52.4,
+    "rtt_p95_ms": 61.8,
+    "loss": 0.002,
+    "mesh_mtu": 1280,
+    "datagram": 1252,
+    "confirmed": 1252,
+    "dns_ms": 57.3,
+    "dns_at": 1795690614,
+    "rx_bytes": 48213112,
+    "tx_bytes": 9112334,
+    "split": 1834,
+    "joined": 2210
+   },
+   "exit": {
+    "role": "exit",
+    "version": "mock",
+    "started_at": 1795687023,
+    "updated_at": 1795690623,
+    "peer": "100.96.0.16:51544",
+    "handshake_age": 34,
+    "healthy": false,
+    "routing": false,
+    "rx_bytes": 9112334,
+    "tx_bytes": 48213112
+   }
+  }
  },
  "/api/nodes": {
   "nodes": [

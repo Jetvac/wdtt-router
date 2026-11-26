@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `serve` | входной сервер | HTTPS-панель, API, очередь задач, планировщик, клиент Cloudflare API |
 | `wdtt-server` | входной сервер | сервер WDTT (служба `wdtt-router-wdtt`) |
+| `link` | серверы цепочки | туннель цепочки для UDP клиентов (служба `wdtt-router-link`, [подробнее](chain-link.md)) |
 | `agent …` | каждый сервер | приводит сервер к заданному состоянию, сообщает статус, проверяет цепочку |
 
 Панель вызывает агента локально (на входе) или по SSH со своим ключом. Для серверов в Mesh SSH идёт через Mesh-адрес, публичный адрес используется только как запасной путь. Постоянного соединения от агента к панели нет.
@@ -17,6 +18,7 @@
 | `internal/spec` | декларативная спецификация узла (`NodeSpec`), генерация ключей |
 | `internal/agent` | Mesh (cloudflare-warp), звено цепочки (Xray), nftables, WDTT, 3x-ui, статус, проверка |
 | `internal/wdtt` | сервер WDTT: маскировка под RTP, DTLS, выдача конфигурации, WireGuard без UDP-порта ([подробнее](wdtt.md)) |
+| `internal/link` | туннель цепочки: WireGuard внутри Mesh со своим транспортом, пробы, выбор пути ([подробнее](chain-link.md)) |
 | `internal/controller` | HTTP API, сессии, задачи, планировщик, Cloudflare |
 | `internal/cfapi` | клиент Cloudflare API: Mesh-узлы, токены, профили устройств, проверка аккаунта |
 | `internal/store` | SQLite (без CGO), шифрование секретов AES-256-GCM |
@@ -49,6 +51,14 @@ CloudflareWARP (Mesh 100.96.x) ─▶ промежуточный: пропуск
 выход: расшифровывает, DNS через DoH, запрещены частные и Mesh-диапазоны и порт 25 ─▶ Интернет
 ```
 
+С туннелем цепочки (режим «UDP через туннель») UDP и ICMP клиентов WDTT идут мимо Xray:
+
+```text
+Клиент WDTT ─▶ wdtt0/wdtt1 ─▶ via_link ─▶ wrlink0 ─▶ WireGuard по Mesh (UDP) ─▶ wrlink0 выхода ─▶ NAT ─▶ Интернет
+```
+
+Если туннель не отвечает 3 с или его служба остановилась, ядро возвращает этот трафик в Xray ([подробнее](chain-link.md)).
+
 Профиль устройств Cloudflare для узлов работает в режиме Include: через Cloudflare идёт только диапазон Mesh, остальной трафик серверов (включая выход в Интернет) идёт обычным маршрутом. Панель отказывается работать, если профиль направляет через Cloudflare весь трафик узлов.
 
 ## Файлы на серверах
@@ -57,9 +67,10 @@ CloudflareWARP (Mesh 100.96.x) ─▶ промежуточный: пропуск
 | --- | --- |
 | `/usr/local/bin/wdtt-router` | панель/агент |
 | `/usr/local/lib/wdtt-router/` | `xray` |
-| `/etc/wdtt-router/` | `spec.json`, `xray.json`, `firewall.nft`, `wdtt.json` (0600) |
+| `/etc/wdtt-router/` | `spec.json`, `xray.json`, `firewall.nft`, `wdtt.json`, `link.json`, `link.nft` (0600) |
+| `/run/wdtt-router/link-status.json` | состояние туннеля цепочки |
 | `/var/lib/wdtt-router/panel/` | база панели, ключ шифрования, SSH-ключ панели, сертификат |
 | `/var/lib/wdtt-router/wdtt/` | ключи сервера и устройства WDTT (сохраняются при отключении) |
 | `/etc/sysctl.d/90-wdtt-router.conf` | BBR, fq, буферы сокетов |
 
-Службы: `wdtt-router` (панель), `wdtt-router-xray`, `wdtt-router-wdtt`, `wdtt-router-boot` (восстановление правил при загрузке), `wdtt-router-maintain.timer` (каждые 30 с: восстановление правил маршрутизации, синхронизация портов 3x-ui).
+Службы: `wdtt-router` (панель), `wdtt-router-xray`, `wdtt-router-wdtt`, `wdtt-router-link` (туннель цепочки), `wdtt-router-boot` (восстановление правил при загрузке), `wdtt-router-maintain.timer` (каждые 30 с: восстановление правил маршрутизации, синхронизация портов 3x-ui).

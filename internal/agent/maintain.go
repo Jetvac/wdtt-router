@@ -26,6 +26,7 @@ func Maintain(ctx context.Context) error {
 	if err != nil || s.Entry == nil {
 		return nil
 	}
+	maintainLink(ctx, s)
 	if len(s.Entry.WDTTServers()) > 0 && !tproxyRoutingPresent(ctx) {
 		Logf("restoring WDTT policy routing")
 		if err := applyTProxyRouting(ctx); err != nil {

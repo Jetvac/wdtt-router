@@ -7,6 +7,7 @@ import { JobStatusTag, useJobs } from '../components/Jobs'
 import type { NodeView, Overview } from '../types'
 import { fromNow, HealthBadge, MeshTag, RoleTag, usePoll } from '../util'
 import { EventsCard, MetricsCard } from '../components/Activity'
+import { ChainLinkCard } from '../components/ChainLink'
 
 export default function Dashboard() {
   const { data, loading, reload } = usePoll<Overview>('/api/overview', 10000)
@@ -127,6 +128,8 @@ export default function Dashboard() {
           />
         )}
       </Card>
+
+      {chain.length >= 2 && data.link && <ChainLinkCard link={data.link} probe={data.probe} onJob={(id) => track(id, () => reload())} />}
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>

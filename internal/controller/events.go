@@ -131,6 +131,9 @@ func (a *App) observe(ctx context.Context, n Node, err error) {
 			}
 		}
 	}
+	if n.Local {
+		a.observeLink(n)
+	}
 	if tv := n.Status.TurnVK; n.Local && a.entrySettings().TurnVK.Enabled && tv != nil && tv.Installed {
 		down := tv.Active != "active"
 		if down != m.turnvkDown {
@@ -154,7 +157,7 @@ func (a *App) checkChain(ctx context.Context) {
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	err := a.probe(cctx, &jobRun{a: a})
+	err := a.probe(cctx, &jobRun{a: a}, false)
 	cancel()
 	var pr ProbeRecord
 	if err == nil && json.Unmarshal([]byte(a.Store.Setting("last_probe", "")), &pr) == nil && pr.OK {
@@ -527,6 +530,11 @@ func (a *App) statusSummary() string {
 			fmt.Fprintf(&b, "\nЦепочка: 🟢 работает (TCP %d мс), проверена %s назад\n", pr.TCPms, ago(time.Since(at)))
 		} else {
 			fmt.Fprintf(&b, "\nЦепочка: 🔴 не работает, проверена %s назад\n", ago(time.Since(at)))
+		}
+	}
+	for _, n := range nodes {
+		if l := a.linkSummary(n); n.Local && l != "" {
+			b.WriteString(l + "\n")
 		}
 	}
 	if a.entrySettings().WDTTEnabled {

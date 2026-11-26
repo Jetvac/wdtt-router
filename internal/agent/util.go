@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -45,9 +44,9 @@ func Lock(timeout time.Duration) (func(), error) {
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = flock(f, lockEx)
 		if err == nil {
-			return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
+			return func() { _ = flock(f, lockUn); f.Close() }, nil
 		}
 		if time.Now().After(deadline) {
 			f.Close()

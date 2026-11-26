@@ -71,7 +71,10 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 		{"network tuning", func() error { return reconcileSysctl(ctx, &res.Changed) }},
 		{"Mesh", func() error { return reconcileMesh(ctx, s.Mesh, &res.Changed) }},
 		{"chain hop", func() error { return reconcileXray(ctx, s, &res.Changed) }},
-		{"WDTT", func() error { return reconcileWDTT(ctx, s.Entry, &res.Changed) }},
+		{"WDTT", func() error { return reconcileWDTT(ctx, s.Entry, s.Link != nil, &res.Changed) }},
+		// The chain tunnel after WDTT: on the entry its traffic rules are
+		// in place by then; on the exit it needs Mesh's address.
+		{"chain tunnel", func() error { return reconcileLink(ctx, s, &res.Changed) }},
 		{"3x-ui", func() error { return reconcileXUI(ctx, s.Entry, &res.Changed, res.Secrets) }},
 		{"hardening", func() error { return reconcileHardening(ctx, s.Hardening, &res.Changed) }},
 		{"Telegram bot", func() error { return reconcileBot(ctx, s.Bot, &res.Changed) }},
@@ -82,6 +85,9 @@ func Apply(ctx context.Context, s *spec.NodeSpec) (spec.ApplyResult, error) {
 			in := FirewallInputs{}
 			if s.Hop != nil {
 				in.HopPort = s.Hop.Port
+			}
+			if s.Link != nil && s.Role != spec.RoleEntry {
+				in.LinkPort = s.Link.Port
 			}
 			in.WDTT = s.Entry.WDTTServers()
 			if s.Entry != nil && s.Entry.XUI.Enabled {
@@ -126,6 +132,20 @@ func Boot(ctx context.Context) error {
 			return err
 		}
 	}
+	// The chain tunnel: the exit's forwarding rules and the entry's routing
+	// (the service's own start installs that too).
+	if s, _, err := loadSaved(); err == nil && s.Link != nil {
+		if b, err := os.ReadFile(EtcDir + "/link.nft"); err == nil && s.Role == spec.RoleExit {
+			if out, err := runStdin(ctx, string(b), "nft", "-f", "-"); err != nil {
+				return fmt.Errorf("restore tunnel rules: %s", out)
+			}
+		}
+		if s.Role == spec.RoleEntry && s.Entry != nil {
+			if err := applyLinkRouting(ctx, linkIfaces(s)); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -147,7 +167,8 @@ func Uninstall(ctx context.Context, purge bool) ([]string, error) {
 			_ = detachXUI(ctx, &changed)
 		}
 	}
-	_ = reconcileWDTT(ctx, nil, &changed)
+	_ = reconcileLink(ctx, idle, &changed)
+	_ = reconcileWDTT(ctx, nil, false, &changed)
 	_ = reconcileXray(ctx, idle, &changed)
 	if removeUnit(ctx, xrayUnit) {
 		changed = append(changed, "xray: removed")
@@ -168,7 +189,7 @@ func Uninstall(ctx context.Context, purge bool) ([]string, error) {
 		purgeWarp(ctx)
 		removeIfExists(LibDir+"/xray", VarDir)
 	}
-	removeIfExists(specPath, fwPath, fwPendingPath, fwPrevPath, xrayConfig, EtcDir+"/wdtt-tproxy.nft", sysctlPath)
+	removeIfExists(specPath, fwPath, fwPendingPath, fwPrevPath, xrayConfig, EtcDir+"/wdtt-tproxy.nft", EtcDir+"/link.nft", sysctlPath)
 	if purge {
 		// The running binary can be unlinked on Linux; nothing of the panel
 		// stays on the server.

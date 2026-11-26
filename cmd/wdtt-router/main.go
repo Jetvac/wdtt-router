@@ -24,6 +24,7 @@ import (
 	"github.com/Jetvac/wdtt-router/internal/backup"
 	"github.com/Jetvac/wdtt-router/internal/bot"
 	"github.com/Jetvac/wdtt-router/internal/controller"
+	"github.com/Jetvac/wdtt-router/internal/link"
 	"github.com/Jetvac/wdtt-router/internal/sshx"
 	"github.com/Jetvac/wdtt-router/internal/wdtt"
 	"github.com/Jetvac/wdtt-router/web"
@@ -46,6 +47,7 @@ Agent (run by the panel on every server):
 
 WDTT server (run by systemd on the entry server):
   wdtt-router wdtt-server [--config /etc/wdtt-router/wdtt.json]   SIGHUP reloads passwords
+  wdtt-router link [--config /etc/wdtt-router/link.json]          chain tunnel; SIGHUP reloads the mode
   wdtt-router restore [--public-host ADDR] FILE.wbk   restore a backup made in the panel
   wdtt-router ssh-key                     print the panel public SSH key
 `, agent.Version)
@@ -66,6 +68,12 @@ func main() {
 		err = serve(ctx, os.Args[2:])
 	case "wdtt-server":
 		err = wdttServer(ctx, os.Args[2:])
+	case "link":
+		// The chain tunnel service (docs/chain-link.md).
+		fl := flag.NewFlagSet("link", flag.ExitOnError)
+		cfg := fl.String("config", agent.EtcDir+"/link.json", "configuration file")
+		_ = fl.Parse(os.Args[2:])
+		err = link.Run(ctx, *cfg, agent.Version)
 	case "telegram-bot":
 		err = telegramBot(ctx, os.Args[2:])
 	case "restore":
@@ -360,10 +368,13 @@ func agentMain(ctx context.Context, args []string) error {
 		return agent.Maintain(ctx)
 	case "tproxy-routes":
 		return agent.TProxyRoutes(ctx)
+	case "link-routes":
+		return agent.LinkRoutes(ctx)
 	case "probe":
-		pctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		speed := len(args) > 1 && args[1] == "--speed"
+		pctx, cancel := context.WithTimeout(ctx, map[bool]time.Duration{false: 60 * time.Second, true: 150 * time.Second}[speed])
 		defer cancel()
-		return printJSON(agent.Probe(pctx))
+		return printJSON(agent.Probe(pctx, speed))
 	case "xui-reset":
 		b, _ := io.ReadAll(io.LimitReader(os.Stdin, 4096))
 		parts := strings.Split(strings.TrimSpace(string(b)), "\n")

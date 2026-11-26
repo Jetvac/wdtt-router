@@ -18,6 +18,8 @@ interface Metrics {
   hours: number
   bucket: number
   ping: { t: number; ms: number }[]
+  /** Round trip through the chain tunnel (when it is on). */
+  link_ping?: { t: number; ms: number }[]
   nodes: Record<string, Point[]>
 }
 
@@ -78,8 +80,16 @@ export function MetricsCard({ nodes }: { nodes: NodeView[] }) {
             <LineChart bucket={m.bucket} digits={0} lines={[{ name: 'сессий', color: token.colorPrimary, points: wdtt.map((p) => [p.t, p.sessions]) }]} />
           </Col>
           <Col xs={24} md={12}>
-            <Typography.Text strong>Задержка цепочки (TCP)</Typography.Text>
-            <LineChart bucket={300} digits={0} unit=" мс" lines={[{ name: 'TCP', color: token.colorInfo, points: m.ping.map((p) => [p.t, p.ms]) }]} />
+            <Typography.Text strong>Задержка цепочки</Typography.Text>
+            <LineChart
+              bucket={300}
+              digits={0}
+              unit=" мс"
+              lines={[
+                { name: 'новый запрос TCP', color: token.colorInfo, points: m.ping.map((p) => [p.t, p.ms]) },
+                ...(m.link_ping?.length ? [{ name: 'круг по туннелю', color: token.colorSuccess, points: m.link_ping.map((p) => [p.t, p.ms] as [number, number]) }] : []),
+              ]}
+            />
           </Col>
         </Row>
       )}

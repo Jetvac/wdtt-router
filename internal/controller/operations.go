@@ -434,13 +434,15 @@ func (a *App) jobApplyAll(ctx context.Context, j *jobRun) error {
 		}
 	}
 	if len(chain) > 1 {
-		return a.probe(ctx, j)
+		return a.probe(ctx, j, false)
 	}
 	j.Log("Цепочка не задана: трафик WDTT и 3x-ui никуда не направляется")
 	return nil
 }
 
-func (a *App) jobProbe(ctx context.Context, j *jobRun) error { return a.probe(ctx, j) }
+// jobProbe is the check started from the panel: with the chain tunnel on,
+// it also measures the download speed through both paths.
+func (a *App) jobProbe(ctx context.Context, j *jobRun) error { return a.probe(ctx, j, true) }
 
 // ProbeRecord is the saved result of the last end-to-end check.
 type ProbeRecord struct {
@@ -449,9 +451,11 @@ type ProbeRecord struct {
 	ExitNode   string `json:"exit_node"`
 	ExpectedIP string `json:"expected_ip"`
 	Match      bool   `json:"match"`
+	// LinkMatch: the tunnel leaves from the exit's address too.
+	LinkMatch bool `json:"link_match,omitempty"`
 }
 
-func (a *App) probe(ctx context.Context, j *jobRun) error {
+func (a *App) probe(ctx context.Context, j *jobRun, speed bool) error {
 	chain := a.chainIDs()
 	if len(chain) < 2 {
 		return errors.New("цепочка не задана")
@@ -468,7 +472,11 @@ func (a *App) probe(ctx context.Context, j *jobRun) error {
 	var r spec.ProbeResult
 	var out []byte
 	for attempt := 1; attempt <= 3; attempt++ {
-		out, err = a.agentCall(ctx, entry, nil, nil, "probe")
+		args := []string{"probe"}
+		if speed && a.linkMode() != linkOff {
+			args = append(args, "--speed")
+		}
+		out, err = a.agentCall(ctx, entry, nil, nil, args...)
 		if err != nil {
 			return err
 		}
@@ -482,6 +490,17 @@ func (a *App) probe(ctx context.Context, j *jobRun) error {
 	}
 	rec := ProbeRecord{ProbeResult: r, At: now(), ExitNode: exit.Name, ExpectedIP: exit.Status.PublicIPv4}
 	rec.Match = r.OK && r.ExitIP == exit.Status.PublicIPv4
+	if l := r.Link; l != nil {
+		rec.LinkMatch = l.OK && l.ExitIP == exit.Status.PublicIPv4
+		if l.OK {
+			j.Log("Туннель цепочки: DNS %d мс, HTTPS %d мс, выход %s", l.DNSms, l.TCPms, l.ExitIP)
+		} else {
+			j.Log("Туннель цепочки: %s", l.Error)
+		}
+		if r.SpeedMbps > 0 || l.SpeedMbps > 0 {
+			j.Log("Скорость загрузки: через Xray %.1f Мбит/с, через туннель %.1f Мбит/с", r.SpeedMbps, l.SpeedMbps)
+		}
+	}
 	b, _ := json.Marshal(rec)
 	_ = a.Store.SetSetting("last_probe", string(b))
 	if !r.OK {

@@ -107,6 +107,66 @@ export interface Probe {
   exit_node: string
   expected_ip: string
   match: boolean
+  /** Download through Xray (only on a check started from the panel). */
+  speed_mbps?: number
+  /** The same checks through the chain tunnel, when it is up. */
+  link?: LinkProbe
+  link_match?: boolean
+}
+
+export interface LinkProbe {
+  ok: boolean
+  exit_ip?: string
+  dns_ms?: number
+  tcp_ms?: number
+  speed_mbps?: number
+  error?: string
+}
+
+/** The chain tunnel service's state (docs/chain-link.md). */
+export interface LinkStatus {
+  role: string
+  mode?: string
+  version: string
+  started_at: number
+  updated_at: number
+  peer?: string
+  handshake_age: number
+  healthy: boolean
+  problem?: string
+  routing: boolean
+  rtt_p50_ms?: number
+  rtt_p95_ms?: number
+  loss?: number
+  mesh_mtu?: number
+  datagram?: number
+  confirmed?: number
+  dns_ms?: number
+  dns_at?: number
+  dns_error?: string
+  switch_at?: number
+  switch_to?: 'link' | 'xray'
+  switch_why?: string
+  held_until?: number
+  route_error?: string
+  rx_bytes: number
+  tx_bytes: number
+  split?: number
+  joined?: number
+  expired?: number
+}
+
+export type LinkMode = 'off' | 'check' | 'udp'
+
+export interface LinkView {
+  mode: LinkMode
+  /** Chain servers whose agent has no tunnel yet. */
+  missing?: string[]
+  entry?: LinkStatus
+  exit?: LinkStatus
+  /** The check passed: UDP may move to the tunnel. */
+  ready: boolean
+  why?: string
 }
 
 export interface EntrySettings {
@@ -145,6 +205,7 @@ export interface Overview {
   jobs: Job[]
   active_jobs: number
   version: string
+  link?: LinkView
 }
 
 export interface Check {

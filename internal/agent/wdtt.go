@@ -148,11 +148,39 @@ func renderWDTTConfig(w spec.WDTTSpec) []byte {
 // local Xray inbound, and drops any forwarding from or to wdtt0. If Xray or
 // the chain is down the clients simply have no connectivity — their traffic
 // never leaves through the entry server's own address.
-func tproxyScript(port int, servers []WDTTServer) string {
-	var ifaces, addrs []string
+//
+// With the chain tunnel (withLink), client UDP and ICMP of the interfaces
+// in the via_link set are routed into the tunnel instead (applyLinkRouting,
+// SNAT to the entry's tunnel address); the tunnel service keeps renewing
+// that set's timed elements, so without it everything goes to Xray. That
+// script replaces the chains, never the set: re-applying it must not move
+// client traffic off the tunnel.
+func tproxyScript(port int, servers []WDTTServer, withLink bool) string {
+	var ifaces, addrs, nets []string
 	for _, w := range servers {
 		ifaces = append(ifaces, `"`+w.Iface+`"`)
 		addrs = append(addrs, w.Addr)
+		nets = append(nets, w.Network)
+	}
+	if withLink {
+		return fmt.Sprintf(`table inet %[1]s
+add set inet %[1]s %[6]s { type ifname; flags timeout; }
+add chain inet %[1]s prerouting { type filter hook prerouting priority mangle; policy accept; }
+flush chain inet %[1]s prerouting
+add rule inet %[1]s prerouting iifname { %[2]s } ip daddr { %[5]s, 127.0.0.0/8, 224.0.0.0/4, 255.255.255.255 } return
+add rule inet %[1]s prerouting iifname @%[6]s meta l4proto udp accept
+add rule inet %[1]s prerouting iifname { %[2]s } meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:%[3]d meta mark set %[4]s accept
+add chain inet %[1]s forward { type filter hook forward priority filter - 10; policy accept; }
+flush chain inet %[1]s forward
+add rule inet %[1]s forward iifname @%[6]s oifname "%[7]s" meta l4proto { udp, icmp } accept
+add rule inet %[1]s forward iifname "%[7]s" oifname { %[2]s } ct state established,related accept
+add rule inet %[1]s forward iifname { %[2]s } drop
+add rule inet %[1]s forward oifname { %[2]s } drop
+add rule inet %[1]s forward iifname "%[7]s" drop
+add chain inet %[1]s postrouting { type nat hook postrouting priority srcnat; policy accept; }
+flush chain inet %[1]s postrouting
+add rule inet %[1]s postrouting oifname "%[7]s" ip saddr { %[8]s } snat ip to %[9]s
+`, tproxyTable, strings.Join(ifaces, ", "), port, tproxyMark, strings.Join(addrs, ", "), linkSet, LinkIface, strings.Join(nets, ", "), linkEntryAddr)
 	}
 	return fmt.Sprintf(`table inet %[1]s
 delete table inet %[1]s
@@ -231,7 +259,7 @@ func removeTProxy(ctx context.Context) bool {
 	return changed
 }
 
-func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) error {
+func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, withLink bool, changed *[]string) error {
 	enabled := map[string]spec.WDTTSpec{}
 	var running []WDTTServer
 	for _, w := range e.WDTTServers() {
@@ -262,7 +290,7 @@ func reconcileWDTT(ctx context.Context, e *spec.EntrySpec, changed *[]string) er
 		return err
 	}
 	// Kill switch and diversion go in before the services start.
-	script := tproxyScript(e.WDTTServers()[0].TProxy, running)
+	script := tproxyScript(e.WDTTServers()[0].TProxy, running, withLink)
 	if out, err := runStdin(ctx, script, "nft", "-f", "-"); err != nil {
 		return fmt.Errorf("WDTT traffic rules rejected: %s", out)
 	}

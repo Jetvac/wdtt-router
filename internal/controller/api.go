@@ -35,6 +35,8 @@ func (a *App) routes() http.Handler {
 
 	m.HandleFunc("GET /api/chain", a.authed(a.getChain))
 	m.HandleFunc("PUT /api/chain", a.authed(a.putChain))
+	m.HandleFunc("GET /api/chain/link", a.authed(a.getLink))
+	m.HandleFunc("PUT /api/chain/link", a.authed(a.putLink))
 	m.HandleFunc("POST /api/apply", a.authed(a.applyAll))
 	m.HandleFunc("POST /api/probe", a.authed(a.queueProbe))
 
@@ -210,7 +212,7 @@ func (a *App) overview(w http.ResponseWriter, r *http.Request, s auth.Session) {
 	writeJSON(w, 200, map[string]any{
 		"nodes": nodes, "chain": a.chainIDs(), "plan_error": planErr, "probe": probe,
 		"services": a.entrySettings(), "cloudflare": a.cfConfigured(), "jobs": jobs, "active_jobs": running,
-		"version": agent.Version,
+		"version": agent.Version, "link": a.linkView(),
 	})
 }
 

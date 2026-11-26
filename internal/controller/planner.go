@@ -245,6 +245,9 @@ func (a *App) Plan() (map[int64]*spec.NodeSpec, error) {
 		}
 		plans[n.ID] = s
 	}
+	if err := a.planLink(plans, chain, byID, es); err != nil {
+		return nil, fmt.Errorf("туннель цепочки: %w", err)
+	}
 	return plans, nil
 }
 

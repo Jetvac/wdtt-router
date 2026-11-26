@@ -171,7 +171,7 @@ func TestPatchTemplateIdempotent(t *testing.T) {
 }
 
 func TestTProxyScriptKillSwitch(t *testing.T) {
-	s := tproxyScript(30001, WDTTServers)
+	s := tproxyScript(30001, WDTTServers, false)
 	if !strings.Contains(s, `iifname { "wdtt0", "wdtt1" } drop`) || !strings.Contains(s, `oifname { "wdtt0", "wdtt1" } drop`) {
 		t.Fatal("forwarding from WDTT clients must be dropped")
 	}

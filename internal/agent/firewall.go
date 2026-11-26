@@ -22,7 +22,9 @@ const (
 
 // FirewallInputs are values discovered on the host that shape the ruleset.
 type FirewallInputs struct {
-	HopPort  int
+	HopPort int
+	// LinkPort: the chain tunnel's UDP port (exit and relay), from Mesh only.
+	LinkPort int
 	WDTT     []spec.WDTTSpec // enabled WDTT servers (EntrySpec.WDTTServers)
 	XUIPorts []int
 }
@@ -95,6 +97,9 @@ func RenderFirewall(f spec.FirewallSpec, in FirewallInputs) string {
 		mesh = append(mesh, in.HopPort)
 	}
 	fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr 100.96.0.0/12 tcp dport { %s } accept\n", MeshIface, joinPorts(mesh))
+	if in.LinkPort > 0 {
+		fmt.Fprintf(&b, "\t\tiifname \"%s\" ip saddr 100.96.0.0/12 udp dport %d accept\n", MeshIface, in.LinkPort)
+	}
 	if f.PanelPort > 0 {
 		// The panel is always reachable inside Mesh (the team's devices with
 		// Cloudflare WARP, and the Telegram bot on another server); with

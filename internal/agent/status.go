@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Jetvac/wdtt-router/internal/spec"
@@ -91,7 +90,7 @@ func specHash(b []byte) string {
 
 // Inspect reports the observed state of the host.
 func Inspect(ctx context.Context) spec.Status {
-	s := spec.Status{AgentVersion: Version, Arch: runtime.GOARCH, Problems: []string{}}
+	s := spec.Status{AgentVersion: Version, Arch: runtime.GOARCH, Problems: []string{}, Features: []string{spec.FeatureLink}}
 	s.Hostname, _ = os.Hostname()
 	s.OS = osRelease()["PRETTY_NAME"]
 	if out, err := exec.Command("uname", "-r").Output(); err == nil {
@@ -112,9 +111,8 @@ func Inspect(ctx context.Context) spec.Status {
 		}
 	}
 	s.MemTotalMB, s.MemAvailMB = memInfo()
-	var fs syscall.Statfs_t
-	if syscall.Statfs("/", &fs) == nil {
-		s.DiskFreeMB = int64(fs.Bavail) * int64(fs.Bsize) / (1 << 20)
+	if free, _, ok := DiskSpace("/"); ok {
+		s.DiskFreeMB = free / (1 << 20)
 	}
 
 	s.Hardening = inspectHardening(ctx)
@@ -190,6 +188,13 @@ func Inspect(ctx context.Context) spec.Status {
 	}
 	if s.WDTTInstalled && s.WDTTActive != "active" {
 		s.Problems = append(s.Problems, "WDTT service is not running")
+	}
+	if exists("/etc/systemd/system/" + linkUnit) {
+		s.Link = linkRuntime()
+		if unitState(linkUnit) != "active" {
+			s.Problems = append(s.Problems, "chain tunnel service is not running")
+			s.Link = nil
+		}
 	}
 	return s
 }

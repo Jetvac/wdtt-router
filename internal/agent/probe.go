@@ -88,8 +88,24 @@ func socksDial(ctx context.Context, e *spec.EntrySpec, cmd byte, host string, po
 
 // Probe checks the whole chain from the entry: a TCP request to Cloudflare's
 // trace endpoint (reports the public IP seen on the Internet) and a UDP DNS
-// query to 1.1.1.1 carried through the chain.
-func Probe(ctx context.Context) spec.ProbeResult {
+// query to 1.1.1.1 carried through the chain; the same through the chain
+// tunnel when it is up; with speed, a download through each.
+func Probe(ctx context.Context, speed bool) spec.ProbeResult {
+	r := probeXray(ctx)
+	s, _, err := loadSaved()
+	if err != nil || s.Entry == nil {
+		return r
+	}
+	if speed && r.OK {
+		r.SpeedMbps, _ = speedXray(ctx, s.Entry)
+	}
+	if s.Link != nil {
+		r.Link = probeLink(ctx, speed)
+	}
+	return r
+}
+
+func probeXray(ctx context.Context) spec.ProbeResult {
 	r := spec.ProbeResult{}
 	s, _, err := loadSaved()
 	if err != nil || s.Entry == nil {
