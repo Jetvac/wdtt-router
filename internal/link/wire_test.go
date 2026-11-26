@@ -132,3 +132,28 @@ func TestReassemble(t *testing.T) {
 		t.Fatalf("%d messages waiting", r.waiting())
 	}
 }
+
+func TestLimitLapsesWithTheInterface(t *testing.T) {
+	path := 1252
+	b := NewBind(bytes.Repeat([]byte{7}, 32), netip.AddrPort{}, func() int { return path })
+	b.Limit(1188)
+	if b.Datagram() != 1188 || b.Limited() != 1188 {
+		t.Fatalf("capped: datagram %d, limit %d", b.Datagram(), b.Limited())
+	}
+	// Cloudflare lowers the MTU: the old cap means nothing now.
+	path = 1119
+	if b.Datagram() != 1119 || b.Limited() != 0 {
+		t.Fatalf("lower MTU: datagram %d, limit %d", b.Datagram(), b.Limited())
+	}
+	// And raises it back: no cap is left over from before (the exit never
+	// probes to lift one).
+	b.Limit(1055)
+	path = 1252
+	if b.Datagram() != 1252 || b.Limited() != 0 {
+		t.Fatalf("MTU back: datagram %d, limit %d", b.Datagram(), b.Limited())
+	}
+	b.Limit(0)
+	if b.Datagram() != 1252 {
+		t.Fatalf("no cap: datagram %d", b.Datagram())
+	}
+}

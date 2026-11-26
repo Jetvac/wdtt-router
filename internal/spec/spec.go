@@ -117,6 +117,7 @@ type LinkStatus struct {
 	Split   uint64 `json:"split,omitempty"`   // messages sent in parts
 	Joined  uint64 `json:"joined,omitempty"`  // messages put together
 	Expired uint64 `json:"expired,omitempty"` // messages a part of which never came
+	Bad     uint64 `json:"bad,omitempty"`     // datagrams that were not the link's
 }
 
 // BotSpec is the Telegram bot. It needs no open port: it polls Telegram and

@@ -31,9 +31,14 @@ type Bind struct {
 	// run identifies this run of the service in probe answers.
 	run uint64
 
-	conn   atomic.Pointer[net.UDPConn]
-	mu     sync.Mutex
-	limit  atomic.Int32 // a smaller datagram found by probing (0: none)
+	conn atomic.Pointer[net.UDPConn]
+	mu   sync.Mutex
+	// limit: a smaller datagram found by probing or refused by the kernel
+	// (low 32 bits; 0: none), and the interface's datagram it was found
+	// under (high 32 bits). It lapses when that changes: a cap measured
+	// against the old MTU says nothing about the new one, and the exit
+	// never probes to lift it.
+	limit  atomic.Uint64
 	fragID atomic.Uint32
 	reasm  reassembler
 	// last: where WireGuard last sent to, or a probe came from (status).
@@ -62,26 +67,38 @@ func NewBind(psk []byte, listen netip.AddrPort, pathDatagram func() int) *Bind {
 
 // Datagram is the largest datagram the link sends now.
 func (b *Bind) Datagram() int {
-	d := 65507
-	if b.pathDatagram != nil {
-		d = b.pathDatagram()
-	}
-	if l := int(b.limit.Load()); l > 0 && l < d {
+	d := b.path()
+	if l := b.Limited(); l > 0 && l < d {
 		d = l
 	}
 	return max(d, MinDatagram)
 }
 
-// Limit caps datagrams below what the interface allows (0: no cap).
+// path is what the interface takes now.
+func (b *Bind) path() int {
+	if b.pathDatagram != nil {
+		return b.pathDatagram()
+	}
+	return 65507
+}
+
+// Limit caps datagrams below what the interface allows (0: no cap) until
+// the interface's MTU changes.
 func (b *Bind) Limit(n int) {
 	if n > 0 {
 		n = max(n, MinDatagram)
 	}
-	b.limit.Store(int32(n))
+	b.limit.Store(uint64(uint32(b.path()))<<32 | uint64(uint32(n)))
 }
 
-// Limited reports the cap set by Limit (0: none).
-func (b *Bind) Limited() int { return int(b.limit.Load()) }
+// Limited reports the cap set by Limit (0: none, or it lapsed).
+func (b *Bind) Limited() int {
+	v := b.limit.Load()
+	if int(v>>32) != b.path() {
+		return 0
+	}
+	return int(uint32(v))
+}
 
 // Peer is where the other side was last seen or sent to.
 func (b *Bind) Peer() netip.AddrPort {

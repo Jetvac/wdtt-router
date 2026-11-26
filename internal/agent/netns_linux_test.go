@@ -69,7 +69,7 @@ func netnsRole(r string) int {
 			if err != nil {
 				return 1
 			}
-			fmt.Fprintln(f, src.String())
+			fmt.Fprintln(f, src.String(), n)
 			if kind == "dns" && n >= 12 {
 				buf[2] |= 0x80 // a response, no error, no answers: enough for the check
 				buf[3] &^= 0x0f
@@ -168,8 +168,7 @@ func (n *netns) waitFor(what string, within time.Duration, ok func() bool) {
 	deadline := time.Now().Add(within)
 	for !ok() {
 		if time.Now().After(deadline) {
-			b, _ := os.ReadFile(filepath.Join(n.dir, "entry.log"))
-			n.t.Fatalf("%s: not within %s\nentry status %+v\nentry log:\n%s", what, within, n.status("entry"), b)
+			n.fatalf("%s: not within %s", what, within)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -179,6 +178,46 @@ func (n *netns) waitFor(what string, within time.Duration, ok func() bool) {
 func (n *netns) leaked() bool {
 	b, _ := os.ReadFile(filepath.Join(n.dir, "echo.sources"))
 	return strings.Contains(string(b), "203.0.113.1:")
+}
+
+// heard: how many datagrams of size bytes the Internet's echo got.
+func (n *netns) heard(size int) int {
+	b, _ := os.ReadFile(filepath.Join(n.dir, "echo.sources"))
+	return strings.Count(string(b), fmt.Sprintf(" %d\n", size))
+}
+
+// fatalf fails with what it takes to see where packets stopped: both
+// ends' status and logs, drops per interface, the Mesh qdisc, UDP socket
+// errors, and the entry's routing state.
+func (n *netns) fatalf(format string, args ...any) {
+	n.t.Helper()
+	var b strings.Builder
+	fmt.Fprintf(&b, format, args...)
+	for _, name := range []string{"entry", "exit"} {
+		st, _ := os.ReadFile(filepath.Join(n.dir, name+".json"))
+		lg, _ := os.ReadFile(filepath.Join(n.dir, name+".log"))
+		fmt.Fprintf(&b, "\n--- %s status: %s\n--- %s log:\n%s", name, st, name, lastLines(lg, 40))
+	}
+	echo, _ := os.ReadFile(filepath.Join(n.dir, "echo.sources"))
+	fmt.Fprintf(&b, "\n--- echo heard (source, size):\n%s", lastLines(echo, 15))
+	for _, c := range [][]string{
+		{"wrt-e", "ip", "-s", "-s", "link"},
+		{"wrt-x", "ip", "-s", "-s", "link"},
+		{"wrt-e", "tc", "-s", "qdisc", "show", "dev", "e-mesh"},
+		{"wrt-e", "grep", "^Udp:", "/proc/net/snmp"},
+		{"wrt-x", "grep", "^Udp:", "/proc/net/snmp"},
+		{"wrt-e", "nft", "list", "set", "inet", tproxyTable, linkSet},
+		{"wrt-e", "ip", "route", "show", "table", linkRT},
+	} {
+		out, err := exec.Command("ip", append([]string{"netns", "exec"}, c...)...).CombinedOutput()
+		fmt.Fprintf(&b, "\n--- %s: %s (err %v)\n%s", c[0], strings.Join(c[1:], " "), err, out)
+	}
+	n.t.Fatal(b.String())
+}
+
+func lastLines(b []byte, k int) string {
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-k):], "\n")
 }
 
 func wgKeys(t *testing.T) (priv, pub string) {
@@ -280,21 +319,31 @@ func TestNetnsLink(t *testing.T) {
 	n.waitFor("client UDP on the tunnel", 75*time.Second, func() bool { return n.status("entry").Routing })
 	for _, size := range []int{100, 1200, 1252} {
 		if !n.send("wrt-c", "198.51.100.2:7", size) {
-			t.Fatalf("UDP of %d bytes did not come back through the tunnel", size)
+			n.fatalf("UDP of %d bytes did not come back through the tunnel", size)
 		}
 	}
 	n.in("wrt-c", "ping", "-c", "3", "-W", "2", "198.51.100.2")
 	if n.leaked() {
-		t.Fatal("client traffic left from the entry's own address")
+		n.fatalf("client traffic left from the entry's own address")
 	}
 
 	// Cloudflare lowers the Mesh MTU: big packets go in parts.
 	n.in("wrt-e", "ip", "link", "set", "e-mesh", "mtu", "1147")
 	n.in("wrt-x", "ip", "link", "set", "x-mesh", "mtu", "1147")
-	n.waitFor("datagrams follow the MTU", 10*time.Second, func() bool { st := n.status("entry"); return st.Datagram > 0 && st.Datagram <= 1147-28 })
-	split := n.status("entry").Split
+	for _, side := range []string{"entry", "exit"} {
+		n.waitFor(side+"'s datagrams follow the MTU", 10*time.Second, func() bool {
+			st := n.status(side)
+			return st.Datagram > 0 && st.Datagram <= 1147-28
+		})
+	}
+	split, heard := n.status("entry").Split, n.heard(1252)
 	if !n.send("wrt-c", "198.51.100.2:7", 1252) {
-		t.Fatal("a full-size packet did not pass at MTU 1147")
+		// Which way broke: whether the big one reached the Internet (the
+		// entry's parts were put together) and only the answer was lost,
+		// and whether a packet that still fits one datagram passes.
+		got := n.heard(1252) - heard
+		whole := n.send("wrt-c", "198.51.100.2:7", 1000)
+		n.fatalf("a full-size packet did not pass at MTU 1147 (the echo heard %d of 3 tries; a 1000-byte one passes: %v)", got, whole)
 	}
 	n.waitFor("sent in parts", 5*time.Second, func() bool { return n.status("entry").Split > split })
 
@@ -308,7 +357,7 @@ func TestNetnsLink(t *testing.T) {
 		return st.Routing && st.StartedAt >= restarted
 	})
 	if !n.send("wrt-c", "198.51.100.2:7", 500) {
-		t.Fatal("no traffic after a restart")
+		n.fatalf("no traffic after a restart")
 	}
 
 	// Mesh drops the tunnel: within a few seconds UDP leaves it (to Xray,
@@ -320,20 +369,20 @@ func TestNetnsLink(t *testing.T) {
 	}
 }
 `); err != nil {
-		t.Fatal(err)
+		n.fatalf("%v", err)
 	}
 	n.waitFor("client UDP off a dead tunnel", 10*time.Second, func() bool { return !n.status("entry").Routing })
 	if st := n.status("entry"); st.SwitchTo != "xray" || st.SwitchWhy == "" {
-		t.Fatalf("switch not reported: %+v", st)
+		n.fatalf("switch not reported: %+v", st)
 	}
 	_ = n.send("wrt-c", "198.51.100.2:7", 100)
 	if n.leaked() {
-		t.Fatal("client traffic leaked while the tunnel was down")
+		n.fatalf("client traffic leaked while the tunnel was down")
 	}
 	n.in("wrt-e", "nft", "delete", "table", "inet", "wrtest")
 	n.waitFor("client UDP back on the tunnel", 60*time.Second, func() bool { return n.status("entry").Routing })
 	if !n.send("wrt-c", "198.51.100.2:7", 1200) {
-		t.Fatal("no traffic after the tunnel came back")
+		n.fatalf("no traffic after the tunnel came back")
 	}
 
 	// The service dies for good: the kernel lets UDP off the tunnel by itself.
@@ -344,9 +393,9 @@ func TestNetnsLink(t *testing.T) {
 	})
 	_ = n.send("wrt-c", "198.51.100.2:7", 100)
 	if n.leaked() {
-		t.Fatal("client traffic leaked with the service gone")
+		n.fatalf("client traffic leaked with the service gone")
 	}
 	if b, _ := os.ReadFile(filepath.Join(n.dir, "dns.sources")); len(b) == 0 {
-		t.Fatal("the entry's DNS checks never went through the tunnel")
+		n.fatalf("the entry's DNS checks never went through the tunnel")
 	}
 }

@@ -223,7 +223,7 @@ func runRelay(ctx context.Context, cfg *Config, st *statusWriter) error {
 
 func fillTraffic(s *spec.LinkStatus, b *Bind) {
 	s.RxBytes, s.TxBytes = b.RxBytes.Load(), b.TxBytes.Load()
-	s.Split, s.Joined, s.Expired = b.Split.Load(), b.Joined.Load(), b.Expired()
+	s.Split, s.Joined, s.Expired, s.Bad = b.Split.Load(), b.Joined.Load(), b.Expired(), b.Bad.Load()
 }
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
