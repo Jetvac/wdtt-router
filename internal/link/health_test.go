@@ -132,3 +132,38 @@ func TestHealthNeedsHandshakeAndDNS(t *testing.T) {
 		t.Fatal("kept a tunnel whose DNS checks fail")
 	}
 }
+
+func TestHealthComesUpOnlyWithDNSAnswering(t *testing.T) {
+	start := time.Now()
+	with := func(fails int, unseen bool) func(time.Time) Signals {
+		return func(now time.Time) Signals {
+			s := healthy(start)(now)
+			s.E2EFails, s.E2EUnseen = fails, unseen
+			return s
+		}
+	}
+	// Probes answered, but no DNS check has passed yet, or the last two
+	// failed: client UDP stays on Xray (CI caught it going over and back
+	// five seconds later).
+	h := &Health{T: DefaultThresholds}
+	if run(h, start, 0, 60*time.Second, with(0, true)) {
+		t.Fatal("on the tunnel before DNS through it was ever checked")
+	}
+	if run(h, start, 61*time.Second, 120*time.Second, with(2, false)) {
+		t.Fatal("on the tunnel while DNS through it fails")
+	}
+	if !strings.Contains(h.State().Problem, "DNS") {
+		t.Fatalf("problem %q does not say why", h.State().Problem)
+	}
+	// DNS answers: the usual 30 s, counted from then.
+	if run(h, start, 121*time.Second, 150*time.Second, with(0, false)) {
+		t.Fatal("did not wait Up after DNS answered")
+	}
+	if !run(h, start, 151*time.Second, 152*time.Second, with(0, false)) {
+		t.Fatal("not on the tunnel with everything answering")
+	}
+	// On the tunnel, a lost check or two do not move it off.
+	if !run(h, start, 153*time.Second, 160*time.Second, with(2, false)) {
+		t.Fatal("left the tunnel over two lost DNS checks")
+	}
+}

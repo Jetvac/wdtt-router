@@ -311,7 +311,11 @@ func TestNetnsLink(t *testing.T) {
 		NftTable: tproxyTable, NftSet: linkSet, RouteTable: 51889, Mark: LinkMark})
 
 	n.start("echo", "wrt-i", "echo=0.0.0.0:7,"+filepath.Join(n.dir, "echo.sources"))
-	n.start("dns", "wrt-i", "dns=0.0.0.0:53,"+filepath.Join(n.dir, "dns.sources"))
+	// One server per address, as 1.1.1.1 and 9.9.9.9 answer from the
+	// address asked: one on 0.0.0.0 answers from 198.51.100.2, which the
+	// exit's NAT does not take for the reply.
+	n.start("dns1", "wrt-i", "dns=1.1.1.1:53,"+filepath.Join(n.dir, "dns.sources"))
+	n.start("dns9", "wrt-i", "dns=9.9.9.9:53,"+filepath.Join(n.dir, "dns.sources"))
 	n.start("exit", "wrt-x", "link="+filepath.Join(n.dir, "exit.cfg"))
 	n.start("entry", "wrt-e", "link="+filepath.Join(n.dir, "entry.cfg"))
 

@@ -34,6 +34,7 @@ type Signals struct {
 	LastReply time.Time // last answer to a probe (zero: none yet)
 	Handshake time.Time // WireGuard's last handshake (zero: none yet)
 	E2EFails  int       // DNS checks through the tunnel failed in a row
+	E2EUnseen bool      // no DNS check through the tunnel has passed yet
 	Allowed   bool      // the mode lets client traffic use the tunnel
 }
 
@@ -82,8 +83,17 @@ func (h *Health) check(s Signals) string {
 	} else if s.Now.Sub(s.Handshake) > t.Handshake {
 		return "рукопожатие WireGuard устарело"
 	}
-	if s.E2EFails >= t.E2EFails {
+	switch {
+	case s.E2EFails >= t.E2EFails:
 		return "DNS через туннель не отвечает"
+	case h.want:
+		// On the tunnel, one or two lost checks are not a reason to leave.
+	case s.E2EFails > 0:
+		// Not on it yet: client UDP moves there only with DNS answering
+		// through it, or it would be back on Xray a few checks later.
+		return "DNS через туннель не ответил"
+	case s.E2EUnseen:
+		return "DNS через туннель ещё не проверен"
 	}
 	return ""
 }

@@ -42,6 +42,7 @@ type Entry struct {
 	e2eRTT   time.Duration
 	e2eAt    time.Time
 	e2eErr   string
+	e2eSeen  bool // a check has passed in this run
 	mtu      mtuProbe
 	peerRun  uint64
 	routed   bool
@@ -104,9 +105,10 @@ func (e *Entry) Run(ctx context.Context) error {
 			go e.e2e(ctx)
 		}
 		e.mu.Lock()
-		fails := e.e2eFails
+		fails, unseen := e.e2eFails, e.E2E != nil && !e.e2eSeen
 		e.mu.Unlock()
-		changed := e.Health.Step(Signals{Now: now, Started: e.started, LastReply: e.tr.last(), Handshake: e.Handshake(), E2EFails: fails, Allowed: e.Allowed()})
+		changed := e.Health.Step(Signals{Now: now, Started: e.started, LastReply: e.tr.last(), Handshake: e.Handshake(),
+			E2EFails: fails, E2EUnseen: unseen, Allowed: e.Allowed()})
 		st := e.Health.State()
 		if changed {
 			e.Log("client UDP → %s: %s", map[bool]string{true: "tunnel", false: "Xray"}[st.Want], st.SwitchWhy)
@@ -228,7 +230,7 @@ func (e *Entry) e2e(ctx context.Context) {
 		e.e2eErr = err.Error()
 		return
 	}
-	e.e2eFails, e.e2eRTT, e.e2eErr = 0, rtt, ""
+	e.e2eFails, e.e2eRTT, e.e2eErr, e.e2eSeen = 0, rtt, "", true
 }
 
 // EntryState is a snapshot for the status file.
