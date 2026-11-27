@@ -329,7 +329,9 @@
     "rx_bytes": 48213112,
     "tx_bytes": 9112334,
     "split": 1834,
-    "joined": 2210
+    "joined": 2210,
+    "tun_in": 41250,
+    "tun_out": 38811
    },
    "exit": {
     "role": "exit",
@@ -341,7 +343,11 @@
     "healthy": false,
     "routing": false,
     "rx_bytes": 9112334,
-    "tx_bytes": 48213112
+    "tx_bytes": 48213112,
+    "tun_in": 38811,
+    "tun_out": 41250,
+    "public_iface": "enp1s0",
+    "forward": "iptables FORWARD отбрасывает пересылаемые пакеты (ufw, Docker): туннель пропущен"
    }
   }
  },

@@ -77,6 +77,7 @@ func Run(ctx context.Context, cfgPath, version string) error {
 		}
 	}
 	_ = os.WriteFile("/proc/sys/net/ipv6/conf/"+cfg.Iface+"/disable_ipv6", []byte("1"), 0644)
+	looseRPF(cfg.Iface)
 	if err := dev.Up(); err != nil {
 		return err
 	}
@@ -91,17 +92,25 @@ func Run(ctx context.Context, cfgPath, version string) error {
 func runExit(ctx context.Context, cfg *Config, b *Bind, wg *wgWatch, mesh *meshMTU, st *statusWriter) error {
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
-	for {
+	entry := addrOf(cfg.AllowedIP)
+	var path string
+	for n := 0; ; n++ {
 		// Replies from the Internet come in on the public interface and go
 		// out through the tunnel: both forward (firewall rules allow only
 		// that, see the agent).
 		_ = setForwarding(cfg.Iface)
 		_ = setForwarding(cfg.PublicIface)
+		if n%8 == 0 {
+			if path = pathProblem(cfg, entry); path != "" && n == 0 {
+				log.Printf("path: %s", path)
+			}
+		}
 		s := st.base
 		s.Peer = addrString(b.Peer())
 		s.HandshakeAge = wg.age()
 		s.MeshMTU, s.Datagram = mesh.get(), b.Datagram()
-		fillTraffic(&s, b)
+		s.PublicIface, s.PathProblem = cfg.PublicIface, path
+		fillTraffic(&s, b, cfg.Iface)
 		st.write(s)
 		select {
 		case <-ctx.Done():
@@ -158,6 +167,7 @@ func runEntry(ctx context.Context, cfg *Config, cfgPath string, dev *device.Devi
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
 		n := 0
+		var path string
 		for {
 			select {
 			case <-ctx.Done():
@@ -166,6 +176,9 @@ func runEntry(ctx context.Context, cfg *Config, cfgPath string, dev *device.Devi
 			}
 			if n++; n%3 == 0 {
 				ensureTable(cfg)
+			}
+			if n%8 == 1 {
+				path = pathProblem(cfg, addrOf(cfg.Address))
 			}
 			now := time.Now()
 			es := e.State(now)
@@ -191,8 +204,8 @@ func runEntry(ctx context.Context, cfg *Config, cfgPath string, dev *device.Devi
 			if es.Health.HoldUntil.After(now) {
 				s.HeldUntil = es.Health.HoldUntil.Unix()
 			}
-			s.RouteErr = es.RouteErr
-			fillTraffic(&s, b)
+			s.RouteErr, s.PathProblem = es.RouteErr, path
+			fillTraffic(&s, b, cfg.Iface)
 			st.write(s)
 		}
 	}()
@@ -221,9 +234,16 @@ func runRelay(ctx context.Context, cfg *Config, st *statusWriter) error {
 	return r.Run(ctx)
 }
 
-func fillTraffic(s *spec.LinkStatus, b *Bind) {
+func fillTraffic(s *spec.LinkStatus, b *Bind, iface string) {
 	s.RxBytes, s.TxBytes = b.RxBytes.Load(), b.TxBytes.Load()
 	s.Split, s.Joined, s.Expired, s.Bad = b.Split.Load(), b.Joined.Load(), b.Expired(), b.Bad.Load()
+	s.TunIn, s.TunOut = tunPackets(iface)
+}
+
+// addrOf is the address of a prefix ("10.66.80.1/30" → "10.66.80.1").
+func addrOf(prefix string) string {
+	a, _, _ := strings.Cut(prefix, "/")
+	return a
 }
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }

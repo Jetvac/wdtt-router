@@ -191,6 +191,13 @@ func Inspect(ctx context.Context) spec.Status {
 	}
 	if exists("/etc/systemd/system/" + linkUnit) {
 		s.Link = linkRuntime()
+		if s.Link != nil && s.Link.Role == spec.RoleExit {
+			var problem string
+			s.Link.Forward, problem = linkForwardNote(ctx, s.Link.PublicIface)
+			if s.Link.PathProblem == "" {
+				s.Link.PathProblem = problem
+			}
+		}
 		if unitState(linkUnit) != "active" {
 			s.Problems = append(s.Problems, "chain tunnel service is not running")
 			s.Link = nil

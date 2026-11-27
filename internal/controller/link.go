@@ -207,6 +207,9 @@ func linkReady(v LinkView) (bool, string) {
 	case e == nil || time.Since(time.Unix(e.UpdatedAt, 0)) > time.Minute:
 		return false, "служба туннеля на входе не отвечает"
 	case !e.Healthy:
+		if why := linkStuck(v); why != "" {
+			return false, why
+		}
 		return false, "туннель неисправен: " + e.Problem
 	case e.DNSAt == 0 || e.DNSError != "":
 		return false, "DNS через туннель ещё не проверен"
@@ -214,6 +217,28 @@ func linkReady(v LinkView) (bool, string) {
 		return false, "ещё не проверено, проходят ли большие пакеты"
 	}
 	return true, ""
+}
+
+// linkStuck names where the tunnel's packets stop, when the ends can tell:
+// a server's kernel or firewall would drop them, or the packet counts of
+// the two ends show which side never passes them on.
+func linkStuck(v LinkView) string {
+	e, x := v.Entry, v.Exit
+	switch {
+	case x != nil && x.PathProblem != "":
+		return "выход: " + x.PathProblem
+	case e != nil && e.PathProblem != "":
+		return "вход: " + e.PathProblem
+	case e == nil || x == nil || x.Role != spec.RoleExit:
+		return ""
+	case e.TunOut > 0 && x.TunIn == 0:
+		return "пакеты уходят в туннель на входе, но не выходят из него на выходе"
+	case x.TunIn > 0 && x.TunOut == 0:
+		return "пакеты доходят до выхода, но из Интернета через него ничего не возвращается: проверьте межсетевой экран выхода и сеть хостера"
+	case x.TunOut > 0 && e.TunIn == 0:
+		return "ответы уходят с выхода в туннель, но не выходят из него на входе"
+	}
+	return ""
 }
 
 func (a *App) getLink(w http.ResponseWriter, r *http.Request, s auth.Session) {

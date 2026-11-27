@@ -118,6 +118,18 @@ type LinkStatus struct {
 	Joined  uint64 `json:"joined,omitempty"`  // messages put together
 	Expired uint64 `json:"expired,omitempty"` // messages a part of which never came
 	Bad     uint64 `json:"bad,omitempty"`     // datagrams that were not the link's
+	// Packets through the tunnel interface: out of the tunnel into this
+	// server (In), and into the tunnel (Out). Side by side for the entry
+	// and the exit they show where packets stop.
+	TunIn  uint64 `json:"tun_in,omitempty"`
+	TunOut uint64 `json:"tun_out,omitempty"`
+	// PathProblem: the kernel would drop the tunnel's packets on this
+	// server (forwarding off, reverse path filter, another route).
+	PathProblem string `json:"path_problem,omitempty"`
+	// The exit's Internet interface, and what the host's iptables needed
+	// for it (ufw and Docker drop forwarded packets by default).
+	PublicIface string `json:"public_iface,omitempty"`
+	Forward     string `json:"forward,omitempty"`
 }
 
 // BotSpec is the Telegram bot. It needs no open port: it polls Telegram and

@@ -109,6 +109,33 @@ func TestLinkReady(t *testing.T) {
 	}
 }
 
+func TestLinkNamesWherePacketsStop(t *testing.T) {
+	now := time.Now().Unix()
+	sick := func() *spec.LinkStatus {
+		return &spec.LinkStatus{Role: spec.RoleEntry, UpdatedAt: now, Problem: "DNS через туннель не отвечает", DNSAt: now, Confirmed: 1252, TunOut: 12, TunIn: 0}
+	}
+	exit := func(in, out uint64, problem string) *spec.LinkStatus {
+		return &spec.LinkStatus{Role: spec.RoleExit, TunIn: in, TunOut: out, PathProblem: problem}
+	}
+	for _, c := range []struct {
+		name string
+		exit *spec.LinkStatus
+		want string
+	}{
+		// exit-de, 26 Nov: Docker's FORWARD DROP, the agent saw it.
+		{"exit firewall", exit(12, 0, "iptables FORWARD на выходе отбрасывает пакеты туннеля"), "выход: iptables"},
+		{"no answers from the Internet", exit(12, 0, ""), "пакеты доходят до выхода"},
+		{"lost inside the tunnel", exit(0, 0, ""), "не выходят из него на выходе"},
+		{"answers lost on the way back", exit(12, 12, ""), "не выходят из него на входе"},
+		{"no exit status", nil, "туннель неисправен"},
+	} {
+		_, why := linkReady(LinkView{Mode: spec.LinkCheck, Entry: sick(), Exit: c.exit})
+		if !strings.Contains(why, c.want) {
+			t.Errorf("%s: %q, want %q in it", c.name, why, c.want)
+		}
+	}
+}
+
 func TestLinkSwitchEvents(t *testing.T) {
 	a := testApp(t)
 	_ = a.Store.SetSetting("chain_link", spec.LinkUDP)

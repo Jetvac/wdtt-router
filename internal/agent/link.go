@@ -235,6 +235,9 @@ func reconcileLink(ctx context.Context, s *spec.NodeSpec, changed *[]string) err
 			_ = run(ctx, "nft", "delete", "table", "inet", linkTable)
 			removed = true
 		}
+		if removeLinkForward(ctx) {
+			removed = true
+		}
 		if removed {
 			*changed = append(*changed, "chain tunnel: removed")
 		}
@@ -243,7 +246,7 @@ func reconcileLink(ctx context.Context, s *spec.NodeSpec, changed *[]string) err
 	if err := aptInstall(ctx, "nftables", "iproute2"); err != nil {
 		return err
 	}
-	pub, _ := defaultRoute()
+	pub := linkPublicIface(ctx)
 	cfg, err := LinkConfig(s, MeshAddress(), pub)
 	if err != nil {
 		return err
@@ -277,6 +280,11 @@ func reconcileLink(ctx context.Context, s *spec.NodeSpec, changed *[]string) err
 		}
 		if _, err := writeIfChanged(EtcDir+"/link.nft", []byte(script), 0600); err != nil {
 			return err
+		}
+		if added, err := ensureLinkForward(ctx, pub); err != nil {
+			Logf("chain tunnel: iptables FORWARD: %v", err)
+		} else if added {
+			*changed = append(*changed, "chain tunnel: let through iptables FORWARD (ufw/Docker)")
 		}
 	default:
 		if nftTableExists(ctx, linkTable) {
@@ -326,6 +334,25 @@ func linkBinaryChanged() bool {
 
 func markLinkBinary() { _ = os.WriteFile(linkDataDir+"/.server-version", []byte(Version+"\n"), 0600) }
 
+// linkPublicIface is where the exit's own Internet traffic leaves: the
+// route to 1.1.1.1, unless that goes into Mesh or the tunnel (Cloudflare's
+// client can take such routes), then the main table's default route.
+func linkPublicIface(ctx context.Context) string {
+	if dev, _ := defaultRoute(); dev != "" && dev != MeshIface && dev != LinkIface {
+		return dev
+	}
+	out, _ := output(ctx, "ip", "-4", "route", "show", "table", "main", "default")
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		for i := 0; i+1 < len(f); i++ {
+			if f[i] == "dev" && f[i+1] != MeshIface && f[i+1] != LinkIface {
+				return f[i+1]
+			}
+		}
+	}
+	return ""
+}
+
 // linkRuntime reads the state the service publishes.
 func linkRuntime() *spec.LinkStatus {
 	b, err := os.ReadFile(LinkStatusPath)
@@ -350,6 +377,16 @@ func maintainLink(ctx context.Context, s *spec.NodeSpec) {
 		Logf("restoring the chain tunnel's policy routing")
 		if err := applyLinkRouting(ctx, linkIfaces(s)); err != nil {
 			Logf("chain tunnel routing: %v", err)
+		}
+	}
+	// ufw and Docker rewrite FORWARD when they reload.
+	if s.Role == spec.RoleExit {
+		if pub := linkPublicIface(ctx); pub != "" {
+			if added, err := ensureLinkForward(ctx, pub); err != nil {
+				Logf("chain tunnel: iptables FORWARD: %v", err)
+			} else if added {
+				Logf("chain tunnel: restored its rules in iptables FORWARD")
+			}
 		}
 	}
 	if !linkBinaryChanged() {

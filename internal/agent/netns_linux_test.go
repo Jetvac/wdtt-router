@@ -76,6 +76,17 @@ func netnsRole(r string) int {
 			}
 			_, _ = c.WriteTo(buf[:n], src)
 		}
+	case "forward":
+		// What the agent does on the exit when it applies the tunnel.
+		added, err := ensureLinkForward(context.Background(), arg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if !added {
+			return 3
+		}
+		return 0
 	case "send":
 		addr, size, _ := strings.Cut(arg, ",")
 		n, _ := strconv.Atoi(size)
@@ -290,6 +301,22 @@ func TestNetnsLink(t *testing.T) {
 	if err := n.script("wrt-x", linkExitScript("x-pub")); err != nil {
 		t.Fatal(err)
 	}
+	// A real exit may run ufw or Docker: iptables FORWARD drops what it
+	// does not accept. The agent lets the tunnel through it.
+	if out, err := exec.Command("ip", "netns", "exec", "wrt-x", "iptables", "-P", "FORWARD", "DROP").CombinedOutput(); err != nil {
+		t.Logf("iptables unavailable, FORWARD stays open: %v: %s", err, out)
+	} else {
+		c := exec.Command("ip", "netns", "exec", "wrt-x", self, "-test.run=^$")
+		c.Env = append(os.Environ(), "WDTT_NETNS_ROLE=forward=x-pub")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("the agent did not open iptables FORWARD for the tunnel: %v: %s", err, out)
+		}
+	}
+	// And filter by reverse path strictly: replies come back through the
+	// tunnel from Internet addresses the main table routes elsewhere.
+	for _, ns := range []string{"wrt-e", "wrt-x"} {
+		n.in(ns, "sysctl", "-qw", "net.ipv4.conf.all.rp_filter=1", "net.ipv4.conf.default.rp_filter=1")
+	}
 
 	ePriv, ePub := wgKeys(t)
 	xPriv, xPub := wgKeys(t)
@@ -330,6 +357,12 @@ func TestNetnsLink(t *testing.T) {
 	if n.leaked() {
 		n.fatalf("client traffic left from the entry's own address")
 	}
+	// Both ends see a clear path and count the packets that crossed it.
+	n.waitFor("path checks and packet counts", 20*time.Second, func() bool {
+		e, x := n.status("entry"), n.status("exit")
+		return e.PathProblem == "" && x.PathProblem == "" && x.PublicIface == "x-pub" &&
+			e.TunOut > 0 && e.TunIn > 0 && x.TunIn > 0 && x.TunOut > 0
+	})
 
 	// Cloudflare lowers the Mesh MTU: big packets go in parts.
 	n.in("wrt-e", "ip", "link", "set", "e-mesh", "mtu", "1147")

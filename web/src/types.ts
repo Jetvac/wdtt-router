@@ -154,6 +154,15 @@ export interface LinkStatus {
   split?: number
   joined?: number
   expired?: number
+  bad?: number
+  /** Packets out of the tunnel into this server, and into the tunnel. */
+  tun_in?: number
+  tun_out?: number
+  /** The kernel would drop the tunnel's packets on this server. */
+  path_problem?: string
+  /** The exit's Internet interface and what its iptables needed. */
+  public_iface?: string
+  forward?: string
 }
 
 export type LinkMode = 'off' | 'check' | 'udp'

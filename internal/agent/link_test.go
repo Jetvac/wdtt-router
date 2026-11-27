@@ -190,3 +190,31 @@ func TestFirewallOpensLinkPortToMesh(t *testing.T) {
 		t.Fatal("opened without the tunnel")
 	}
 }
+
+func TestForwardDrops(t *testing.T) {
+	ufw := "-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT ACCEPT\n-A FORWARD -j ufw-before-logging-forward\n-A FORWARD -j ufw-before-forward\n"
+	docker := "-P FORWARD DROP\n-A FORWARD -j DOCKER-USER\n-A FORWARD -j DOCKER-FORWARD\n"
+	rhel := "-P FORWARD ACCEPT\n-A FORWARD -j REJECT --reject-with icmp-host-prohibited\n"
+	open := "-P FORWARD ACCEPT\n"
+	for _, c := range []struct {
+		rules string
+		drops bool
+	}{{ufw, true}, {docker, true}, {rhel, true}, {open, false}, {"", false}} {
+		if got := forwardDrops(c.rules); got != c.drops {
+			t.Errorf("forwardDrops(%q) = %v", c.rules, got)
+		}
+	}
+	own := ownForwardRules(docker + "-A FORWARD -s 10.66.80.1/32 -i wrlink0 -o eth0 -m comment --comment \"wdtt-router-link\" -j ACCEPT\n-A FORWARD -i ens3 -o wrlink0 -m conntrack --ctstate RELATED,ESTABLISHED -m comment --comment wdtt-router-link -j ACCEPT\n")
+	if len(own) != 2 {
+		t.Fatalf("own rules: %q", own)
+	}
+	// After a move to ens3 the eth0 rule is stale, the ens3 one is not.
+	if strings.Contains(own[0], " ens3 ") || !strings.Contains(own[1], " ens3 ") {
+		t.Fatalf("interface match: %q", own)
+	}
+	for _, r := range linkForwardRules("eth0") {
+		if !strings.Contains(strings.Join(r, " "), "--comment "+linkFwdComment) {
+			t.Fatalf("rule without the comment: %q", r)
+		}
+	}
+}

@@ -14,6 +14,8 @@ const modeText: Record<LinkMode, string> = {
 const unix = (t?: number) => (t ? dayjs.unix(t) : null)
 const ms = (v?: number) => (v ? `${Math.round(v)} мс` : '—')
 const mbps = (v?: number) => (v ? `${v.toFixed(1)} Мбит/с` : '—')
+/** A packet count; "—" when that end has not reported one (older version). */
+const count = (v?: number) => (v === undefined ? '—' : v.toLocaleString('ru-RU'))
 
 function handshake(age?: number) {
   if (age === undefined || age < 0) return 'ещё не было'
@@ -26,6 +28,7 @@ export function ChainLinkCard({ link, probe, onJob }: { link: LinkView; probe: P
   const { message, modal } = App.useApp()
   const [busy, setBusy] = useState(false)
   const e: LinkStatus | undefined = link.entry
+  const x: LinkStatus | undefined = link.exit
   const missing = link.missing || []
 
   const apply = async (mode: LinkMode) => {
@@ -121,6 +124,24 @@ export function ChainLinkCard({ link, probe, onJob }: { link: LinkView; probe: P
               {e.split ? ` · крупных пакетов частями ${e.split}` : ''}
               {e.expired ? ` · не собрано ${e.expired}` : ''}
             </Descriptions.Item>
+            <Descriptions.Item label="Пакеты через туннель">
+              туда: ушло со входа {count(e.tun_out)} · вышло на выходе {count(x?.tun_in)}
+              <br />
+              обратно: ушло с выхода {count(x?.tun_out)} · пришло на вход {count(e.tun_in)}
+            </Descriptions.Item>
+            {x?.public_iface && (
+              <Descriptions.Item label="Выход в Интернет">
+                через {x.public_iface}
+                {x.forward && <Typography.Text type="secondary"> · {x.forward}</Typography.Text>}
+              </Descriptions.Item>
+            )}
+            {(e.path_problem || x?.path_problem) && (
+              <Descriptions.Item label="Путь пакетов">
+                {x?.path_problem && <Typography.Text type="danger">выход: {x.path_problem}</Typography.Text>}
+                {x?.path_problem && e.path_problem && <br />}
+                {e.path_problem && <Typography.Text type="danger">вход: {e.path_problem}</Typography.Text>}
+              </Descriptions.Item>
+            )}
             {e.route_error && (
               <Descriptions.Item label="Ошибка маршрута">
                 <Typography.Text type="danger">{e.route_error}</Typography.Text>
