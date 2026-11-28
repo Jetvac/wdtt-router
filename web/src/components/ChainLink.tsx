@@ -109,6 +109,12 @@ export function ChainLinkCard({ link, probe, onJob }: { link: LinkView; probe: P
             <Descriptions.Item label="Круг по туннелю">
               {e.rtt_p50_ms ? `${ms(e.rtt_p50_ms)}, 95 % — ${ms(e.rtt_p95_ms)}` : '—'} · потери {((e.loss || 0) * 100).toFixed(1)} %
             </Descriptions.Item>
+            {e.mesh_outs ? (
+              <Descriptions.Item label="Обрывы Mesh">
+                туннель переждал {e.mesh_outs}
+                {e.mesh_out_at ? ` · последний ${dayjs.unix(e.mesh_out_at).format('HH:mm')}, ${Math.max(1, Math.round(e.mesh_out_s || 0))} с` : ''}
+              </Descriptions.Item>
+            ) : null}
             <Descriptions.Item label="DNS через туннель">
               {e.dns_error ? <Typography.Text type="danger">{e.dns_error}</Typography.Text> : ms(e.dns_ms)}
               {e.dns_at ? <Typography.Text type="secondary"> · {dayjs.unix(e.dns_at).fromNow()}</Typography.Text> : null}

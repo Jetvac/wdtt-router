@@ -111,6 +111,12 @@ type LinkStatus struct {
 	SwitchWhy string `json:"switch_why,omitempty"`
 	HeldUntil int64  `json:"held_until,omitempty"`
 	RouteErr  string `json:"route_error,omitempty"`
+	// Mesh outages the tunnel waited out with client UDP in it (Xray rides
+	// the same Mesh): how many since the service started, the last one's
+	// start and length.
+	MeshOuts   int     `json:"mesh_outs,omitempty"`
+	MeshOutAt  int64   `json:"mesh_out_at,omitempty"`
+	MeshOutSec float64 `json:"mesh_out_s,omitempty"`
 	// Traffic of the tunnel (datagrams on the wire, both ways).
 	RxBytes uint64 `json:"rx_bytes"`
 	TxBytes uint64 `json:"tx_bytes"`

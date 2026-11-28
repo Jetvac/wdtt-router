@@ -397,6 +397,32 @@ func TestNetnsLink(t *testing.T) {
 		n.fatalf("no traffic after a restart")
 	}
 
+	// Mesh itself goes quiet for a few seconds: Xray, which rides it too,
+	// could not carry anything either, so client UDP waits in the tunnel
+	// and the outage is reported.
+	before := n.status("entry").SwitchAt
+	if err := n.script("wrt-e", `table inet wrtest {
+	chain out {
+		type filter hook output priority 0; policy accept;
+		oifname "e-mesh" drop
+	}
+}
+`); err != nil {
+		n.fatalf("%v", err)
+	}
+	time.Sleep(6 * time.Second)
+	if st := n.status("entry"); !st.Routing || st.SwitchAt != before {
+		n.fatalf("client UDP left the tunnel during a Mesh outage: %+v", st)
+	}
+	n.in("wrt-e", "nft", "delete", "table", "inet", "wrtest")
+	n.waitFor("the Mesh outage reported", 10*time.Second, func() bool { return n.status("entry").MeshOuts > 0 })
+	if st := n.status("entry"); !st.Routing || st.SwitchAt != before {
+		n.fatalf("client UDP left the tunnel after a Mesh outage: %+v", st)
+	}
+	if !n.send("wrt-c", "198.51.100.2:7", 500) {
+		n.fatalf("no traffic after a Mesh outage")
+	}
+
 	// Mesh drops the tunnel: within a few seconds UDP leaves it (to Xray,
 	// absent here: dropped, never leaked), and comes back once healthy.
 	if err := n.script("wrt-e", `table inet wrtest {

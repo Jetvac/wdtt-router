@@ -26,9 +26,15 @@ type Entry struct {
 	// PeerRestarted: the exit's service restarted and lost WireGuard's
 	// keys; renew them now rather than after WireGuard's own 15 s.
 	PeerRestarted func()
-	Log           func(format string, args ...any)
+	// MeshCheck makes a TCP handshake with the next server over Mesh (nil:
+	// none). While the probes go unanswered it tells a Mesh outage, which
+	// Xray could not ride out either, from a fault of the tunnel itself.
+	MeshCheck func(ctx context.Context) error
+	Log       func(format string, args ...any)
 
 	Interval   time.Duration // probes; default 500 ms
+	MeshAfter  time.Duration // probes unanswered this long: check Mesh; default 1.5 s
+	MeshWait   time.Duration // one Mesh check's limit; default 1.5 s
 	RouteEvery time.Duration // default 1 s
 	E2EEvery   time.Duration // default 15 s
 	MTUEvery   time.Duration // default 10 min
@@ -47,6 +53,11 @@ type Entry struct {
 	peerRun  uint64
 	routed   bool
 	routeErr string
+	// The Mesh check of the current silence: the last answer it follows,
+	// whether a check is under way, and what it found.
+	meshFor  time.Time
+	meshBusy bool
+	mesh     MeshState
 }
 
 type mtuProbe struct {
@@ -77,6 +88,12 @@ func (e *Entry) defaults() {
 	if e.MTUWait == 0 {
 		e.MTUWait = 2 * time.Second
 	}
+	if e.MeshAfter == 0 {
+		e.MeshAfter = 1500 * time.Millisecond
+	}
+	if e.MeshWait == 0 {
+		e.MeshWait = 1500 * time.Millisecond
+	}
 	if e.Log == nil {
 		e.Log = func(string, ...any) {}
 	}
@@ -93,6 +110,8 @@ func (e *Entry) Run(ctx context.Context) error {
 	defer tick.Stop()
 	var lastRoute time.Time
 	var lastE2E time.Time
+	var waiting bool
+	var outs int
 	for {
 		now := time.Now()
 		seq := e.tr.next(now, ProbeSize, false)
@@ -107,12 +126,20 @@ func (e *Entry) Run(ctx context.Context) error {
 		e.mu.Lock()
 		fails, unseen := e.e2eFails, e.E2E != nil && !e.e2eSeen
 		e.mu.Unlock()
+		mesh := e.meshTick(ctx, now)
 		changed := e.Health.Step(Signals{Now: now, Started: e.started, LastReply: e.tr.last(), Handshake: e.Handshake(),
-			E2EFails: fails, E2EUnseen: unseen, Allowed: e.Allowed()})
+			E2EFails: fails, E2EUnseen: unseen, Allowed: e.Allowed(), Mesh: mesh})
 		st := e.Health.State()
 		if changed {
 			e.Log("client UDP → %s: %s", map[bool]string{true: "tunnel", false: "Xray"}[st.Want], st.SwitchWhy)
 		}
+		if st.Waiting && !waiting {
+			e.Log("probes unanswered and Mesh to %s silent too: client UDP waits in the tunnel", e.Peer)
+		}
+		if st.MeshOuts != outs {
+			e.Log("Mesh outage of %s waited out", st.MeshOutFor.Round(100*time.Millisecond))
+		}
+		waiting, outs = st.Waiting, st.MeshOuts
 		if changed || (st.Want && now.Sub(lastRoute) >= e.RouteEvery) {
 			lastRoute = now
 			err := e.Route(st.Want)
@@ -216,6 +243,45 @@ func (e *Entry) mtuTick(now time.Time) {
 	m.seq = e.tr.next(now, size, true)
 	m.next = now.Add(e.MTUWait)
 	_ = e.Bind.Probe(e.Peer, m.seq, now, size)
+}
+
+// meshTick checks, while the probes go unanswered, whether Mesh still
+// carries a TCP handshake to the next server, and returns what it knows of
+// the current silence. Checks repeat until one passes or the probes are
+// answered again.
+func (e *Entry) meshTick(ctx context.Context, now time.Time) MeshState {
+	last := e.tr.last()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.MeshCheck == nil || last.IsZero() || now.Sub(last) < e.MeshAfter {
+		e.meshFor, e.mesh = time.Time{}, MeshUnknown
+		return MeshUnknown
+	}
+	if !e.meshFor.Equal(last) {
+		e.meshFor, e.mesh = last, MeshChecking
+	}
+	if !e.meshBusy && e.mesh != MeshUp {
+		e.meshBusy = true
+		go e.meshRun(ctx, last)
+	}
+	return e.mesh
+}
+
+func (e *Entry) meshRun(ctx context.Context, silence time.Time) {
+	c, cancel := context.WithTimeout(ctx, e.MeshWait)
+	err := e.MeshCheck(c)
+	cancel()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.meshBusy = false
+	if !e.meshFor.Equal(silence) {
+		return // answered again meanwhile
+	}
+	if err == nil {
+		e.mesh = MeshUp
+		return
+	}
+	e.mesh = MeshDown
 }
 
 func (e *Entry) e2e(ctx context.Context) {

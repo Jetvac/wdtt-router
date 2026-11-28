@@ -3,6 +3,7 @@ package link
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -161,6 +162,19 @@ func runEntry(ctx context.Context, cfg *Config, cfgPath string, dev *device.Devi
 				log.Printf("new handshake: %v", err)
 			}
 		},
+		// The next server's Xray hop listens on TCP at the tunnel's port.
+		MeshCheck: func(ctx context.Context) error {
+			var d net.Dialer
+			c, err := d.DialContext(ctx, "tcp", cfg.Peer)
+			if err == nil {
+				c.Close()
+				return nil
+			}
+			if errors.Is(err, syscall.ECONNREFUSED) {
+				return nil // refused: Mesh carried the handshake both ways all the same
+			}
+			return err
+		},
 		Log: log.Printf,
 	}
 	go func() {
@@ -203,6 +217,9 @@ func runEntry(ctx context.Context, cfg *Config, cfgPath string, dev *device.Devi
 			}
 			if es.Health.HoldUntil.After(now) {
 				s.HeldUntil = es.Health.HoldUntil.Unix()
+			}
+			if s.MeshOuts = es.Health.MeshOuts; s.MeshOuts > 0 {
+				s.MeshOutAt, s.MeshOutSec = es.Health.MeshOutAt.Unix(), es.Health.MeshOutFor.Seconds()
 			}
 			s.RouteErr, s.PathProblem = es.RouteErr, path
 			fillTraffic(&s, b, cfg.Iface)

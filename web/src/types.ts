@@ -149,6 +149,10 @@ export interface LinkStatus {
   switch_why?: string
   held_until?: number
   route_error?: string
+  /** Mesh outages the tunnel waited out (since its service started). */
+  mesh_outs?: number
+  mesh_out_at?: number
+  mesh_out_s?: number
   rx_bytes: number
   tx_bytes: number
   split?: number

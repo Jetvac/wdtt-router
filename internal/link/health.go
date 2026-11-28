@@ -18,6 +18,11 @@ type Thresholds struct {
 	FlapCount  int           // leaving the tunnel this many times …
 	FlapWindow time.Duration // … within this window …
 	FlapHold   time.Duration // … keeps UDP on Xray this long
+	// MeshHold: probes unanswered while Mesh carries nothing to the next
+	// server either: client UDP stays in the tunnel up to this long. Xray
+	// rides the same Mesh, so leaving would not help and would break the
+	// clients' UDP flows twice.
+	MeshHold time.Duration
 }
 
 // DefaultThresholds: see docs/chain-link.md.
@@ -25,7 +30,19 @@ var DefaultThresholds = Thresholds{
 	Down: 3 * time.Second, Up: 30 * time.Second, Grace: 5 * time.Second,
 	Handshake: 3 * time.Minute, HSStart: 15 * time.Second, E2EFails: 3,
 	FlapCount: 3, FlapWindow: 15 * time.Minute, FlapHold: 15 * time.Minute,
+	MeshHold: 30 * time.Second,
 }
+
+// MeshState is what a TCP handshake with the next server over Mesh (its
+// Xray hop) showed while the probes go unanswered.
+type MeshState int
+
+const (
+	MeshUnknown  MeshState = iota // not checked (no check set up, or the probes are answered)
+	MeshChecking                  // the first check of this silence is under way
+	MeshUp                        // Mesh carries a handshake: the tunnel itself is at fault
+	MeshDown                      // Mesh carries nothing either
+)
 
 // Signals are what the choice is made from.
 type Signals struct {
@@ -36,6 +53,7 @@ type Signals struct {
 	E2EFails  int       // DNS checks through the tunnel failed in a row
 	E2EUnseen bool      // no DNS check through the tunnel has passed yet
 	Allowed   bool      // the mode lets client traffic use the tunnel
+	Mesh      MeshState // during a silence of the probes
 }
 
 // Health decides whether client UDP goes through the tunnel. The decision
@@ -54,6 +72,14 @@ type Health struct {
 	switchAt  time.Time
 	switchTo  string
 	switchWhy string
+	// waiting: this step keeps client UDP in the tunnel through a Mesh
+	// outage; outFrom: the last answer before that outage. Outages waited
+	// out: how many, the last one's start and length.
+	waiting bool
+	outFrom time.Time
+	outs    int
+	outAt   time.Time
+	outFor  time.Duration
 }
 
 // Inherit: the previous run of the service had UDP on the tunnel; keep it
@@ -74,7 +100,18 @@ func (h *Health) check(s Signals) string {
 			return "ещё нет ответа на пробы"
 		}
 	case s.LastReply.IsZero() || s.Now.Sub(s.LastReply) > t.Down:
-		return fmt.Sprintf("нет ответа %s", s.Now.Sub(maxTime(s.LastReply, s.Started)).Round(time.Second))
+		gap := s.Now.Sub(maxTime(s.LastReply, s.Started)).Round(time.Second)
+		switch s.Mesh {
+		case MeshUp:
+			return fmt.Sprintf("нет ответа %s, хотя Mesh до следующего сервера работает", gap)
+		case MeshChecking, MeshDown:
+			h.waiting = h.want && !s.LastReply.IsZero() && s.Now.Sub(s.LastReply) < t.MeshHold
+			if s.Mesh == MeshChecking {
+				return fmt.Sprintf("нет ответа %s, проверяю Mesh", gap)
+			}
+			return fmt.Sprintf("нет ответа %s: Mesh до следующего сервера тоже не отвечает", gap)
+		}
+		return fmt.Sprintf("нет ответа %s", gap)
 	}
 	if s.Handshake.IsZero() {
 		if young >= t.HSStart {
@@ -112,8 +149,21 @@ func (h *Health) Step(s Signals) bool {
 	if h.inherited && s.Now.Sub(s.Started) >= h.T.Grace {
 		h.inherited = false
 	}
+	h.waiting = false
 	h.problem = h.check(s)
 	healthy := h.problem == ""
+	if h.waiting {
+		if h.outFrom.IsZero() {
+			h.outFrom = s.LastReply
+		}
+		h.problem += " — UDP ждёт в туннеле"
+	} else if !h.outFrom.IsZero() {
+		if s.LastReply.After(h.outFrom) { // answers again: waited out
+			h.outs++
+			h.outAt, h.outFor = h.outFrom, s.LastReply.Sub(h.outFrom)
+		}
+		h.outFrom = time.Time{}
+	}
 	if !healthy {
 		h.goodSince = time.Time{}
 	} else if h.goodSince.IsZero() {
@@ -124,7 +174,7 @@ func (h *Health) Step(s Signals) bool {
 		h.want = false
 		h.note(s.Now, "xray", "режим без туннеля")
 		return true
-	case h.want && !healthy:
+	case h.want && !healthy && !h.waiting:
 		h.want = false
 		h.left = append(h.left, s.Now)
 		cut := s.Now.Add(-h.T.FlapWindow)
@@ -159,12 +209,20 @@ type HealthState struct {
 	SwitchAt  time.Time
 	SwitchTo  string
 	SwitchWhy string
+	// Waiting: client UDP waits in the tunnel through a Mesh outage now;
+	// MeshOuts, MeshOutAt, MeshOutFor: outages waited out so far, the last
+	// one's start and length.
+	Waiting    bool
+	MeshOuts   int
+	MeshOutAt  time.Time
+	MeshOutFor time.Duration
 }
 
 func (h *Health) State() HealthState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return HealthState{Want: h.want, Problem: h.problem, HoldUntil: h.holdUntil, SwitchAt: h.switchAt, SwitchTo: h.switchTo, SwitchWhy: h.switchWhy}
+	return HealthState{Want: h.want, Problem: h.problem, HoldUntil: h.holdUntil, SwitchAt: h.switchAt, SwitchTo: h.switchTo, SwitchWhy: h.switchWhy,
+		Waiting: h.waiting, MeshOuts: h.outs, MeshOutAt: h.outAt, MeshOutFor: h.outFor}
 }
 
 // tracker records the probes of the entry and their answers.

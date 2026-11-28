@@ -167,3 +167,63 @@ func TestHealthComesUpOnlyWithDNSAnswering(t *testing.T) {
 		t.Fatal("left the tunnel over two lost DNS checks")
 	}
 }
+
+// Probes unanswered while Mesh carries nothing to the next server either:
+// Xray rides the same Mesh, so client UDP waits in the tunnel (up to
+// MeshHold) instead of moving there and back, and the outage is counted.
+// With Mesh working, the tunnel itself is at fault and UDP leaves at once.
+// (exit-de, 28 Nov: UDP moved to Xray and back several times an hour on
+// "нет ответа 3s".)
+func TestHealthWaitsOutMeshOutages(t *testing.T) {
+	meshSilent := func(start, since time.Time, m MeshState) func(time.Time) Signals {
+		return func(now time.Time) Signals {
+			s := silent(start, since)(now)
+			s.Mesh = m
+			return s
+		}
+	}
+	start := time.Now()
+	on := func() *Health {
+		h := &Health{T: DefaultThresholds}
+		run(h, start, 0, 40*time.Second, healthy(start))
+		if !h.State().Want {
+			t.Fatal("not on the tunnel")
+		}
+		return h
+	}
+	gap := start.Add(40 * time.Second)
+
+	// Mesh is down too: UDP stays through a 10 s outage, then the outage
+	// is counted once the probes are answered again.
+	h := on()
+	if !run(h, start, 41*time.Second, 43*time.Second, meshSilent(start, gap, MeshChecking)) ||
+		!run(h, start, 44*time.Second, 50*time.Second, meshSilent(start, gap, MeshDown)) {
+		t.Fatal("left the tunnel during a Mesh outage")
+	}
+	if st := h.State(); !st.Waiting || !strings.Contains(st.Problem, "Mesh до следующего сервера тоже не отвечает") {
+		t.Fatalf("state during the outage %+v", st)
+	}
+	back := start.Add(51 * time.Second)
+	h.Step(Signals{Now: back, Started: start, LastReply: back, Handshake: back, Allowed: true})
+	if st := h.State(); !st.Want || st.Waiting || st.MeshOuts != 1 || !st.MeshOutAt.Equal(gap) || st.MeshOutFor != 11*time.Second || st.SwitchTo == "xray" {
+		t.Fatalf("after the outage %+v", st)
+	}
+
+	// Mesh carries a handshake: the tunnel is at fault, UDP leaves after 3 s.
+	h = on()
+	if run(h, start, 41*time.Second, 44*time.Second, meshSilent(start, gap, MeshUp)) {
+		t.Fatal("stayed in a broken tunnel while Mesh works")
+	}
+	if st := h.State(); !strings.Contains(st.SwitchWhy, "хотя Mesh до следующего сервера работает") || st.MeshOuts != 0 {
+		t.Fatalf("switch %+v", st)
+	}
+
+	// Mesh down for longer than MeshHold: UDP leaves anyway.
+	h = on()
+	if run(h, start, 41*time.Second, 41*time.Second+DefaultThresholds.MeshHold+time.Second, meshSilent(start, gap, MeshDown)) {
+		t.Fatal("still waiting after MeshHold")
+	}
+	if st := h.State(); st.MeshOuts != 0 || st.Waiting {
+		t.Fatalf("a long outage counted as waited out %+v", st)
+	}
+}

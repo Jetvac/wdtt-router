@@ -145,13 +145,18 @@ func TestLinkSwitchEvents(t *testing.T) {
 	a.observeLink(n) // the same switch is told once
 	n.Status.Link = &spec.LinkStatus{Role: spec.RoleEntry, SwitchAt: 200, SwitchTo: "link"}
 	a.observeLink(n)
+	// A Mesh outage the tunnel waited out is told once too.
+	n.Status.Link = &spec.LinkStatus{Role: spec.RoleEntry, SwitchAt: 200, SwitchTo: "link", MeshOuts: 1, MeshOutAt: 300, MeshOutSec: 4.4}
+	a.observeLink(n)
+	a.observeLink(n)
 	ev := a.recentEvents(10)
 	var msgs []string
 	for _, e := range ev {
 		msgs = append(msgs, e.Text)
 	}
 	all := strings.Join(msgs, "\n")
-	if strings.Count(all, "переключён на Xray") != 1 || strings.Count(all, "снова идёт через туннель") != 1 {
+	if strings.Count(all, "переключён на Xray") != 1 || strings.Count(all, "снова идёт через туннель") != 1 ||
+		strings.Count(all, "пропадал на 4 с: туннель переждал") != 1 {
 		t.Fatalf("events:\n%s", all)
 	}
 }

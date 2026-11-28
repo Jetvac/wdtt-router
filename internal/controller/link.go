@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -299,6 +300,10 @@ func (a *App) observeLink(n Node) {
 	}
 	if st.RTT50 > 0 {
 		_, _ = a.Store.DB.Exec(`INSERT INTO metrics(node_id,at,ping_ms) VALUES(-1,?,?)`, time.Now().Unix(), int64(st.RTT50+0.5))
+	}
+	if out, _ := strconv.ParseInt(a.Store.Setting("link_mesh_out_seen", "0"), 10, 64); st.MeshOutAt > out {
+		_ = a.Store.SetSetting("link_mesh_out_seen", strconv.FormatInt(st.MeshOutAt, 10))
+		a.event(EventChain, "⚪ Mesh до следующего сервера пропадал на %.0f с: туннель переждал, UDP клиентов не переключался (Xray тоже идёт через Mesh)", math.Max(1, st.MeshOutSec))
 	}
 	seen, _ := strconv.ParseInt(a.Store.Setting("link_switch_seen", "0"), 10, 64)
 	if st.SwitchAt == 0 || st.SwitchAt <= seen {
