@@ -30,7 +30,10 @@ package wdtt
 // HELLO layout (after the RTP wrap is removed):
 //
 //	0x41 | version | unix ms (8) | nonce (16) | client public key (32) |
-//	flags (1) | len | device id | len | generation
+//	flags (1) | len | device id | len | generation | [run start, unix ms (8)]
+//
+// The run start (flag helloRunAt, TurnVK 0.9.5 and later) orders two runs
+// of the app on one device; older servers ignore it.
 //
 // WELCOME:
 //
@@ -63,6 +66,12 @@ const (
 	directVersion = 1
 
 	helloSkew = 10 * time.Minute // client clock may be off by this much
+	// helloRunAt: HELLO flag, the run's start follows the generation.
+	helloRunAt = 0x01
+	// holderLive: the run holding a device counts as connected while the
+	// client was heard on one of its paths this recently (the app pings
+	// every path every few seconds and says BYE when it stops).
+	holderLive = 30 * time.Second
 	// pathIdle: a path silent this long is dropped. Clients ping every
 	// path every 2 s, but a phone dozing with the screen off pauses for
 	// minutes; its TURN allocation outlives that, so the path is kept and
@@ -212,6 +221,7 @@ type helloMsg struct {
 	flags byte
 	dev   string
 	gen   string
+	runAt int64 // when the run began (client's clock, unix ms), 0 if not sent
 }
 
 func parseHello(b []byte) (helloMsg, error) {
@@ -239,7 +249,36 @@ func parseHello(b []byte) (helloMsg, error) {
 	if h.gen, ok = str(); !ok {
 		return h, errors.New("bad HELLO generation")
 	}
+	if h.flags&helloRunAt != 0 && len(rest) >= 8 {
+		h.runAt = int64(binary.BigEndian.Uint64(rest[:8]))
+	}
 	return h, nil
+}
+
+// olderRun reports whether a HELLO with a new key comes from an earlier run
+// of the app than the one holding the device: by the runs' starts when both
+// sent theirs, else by the HELLO's own time.
+func olderRun(h helloMsg, d *deviceState) bool {
+	if h.runAt > 0 && d.RunAt > 0 {
+		return h.runAt < d.RunAt
+	}
+	return h.ts < d.KeyAt
+}
+
+// heardLately reports whether the client was heard within holderLive on
+// any of the device's paths.
+func (s *Server) heardLately(dev string, now time.Time) bool {
+	cut := now.Add(-holderLive).UnixNano()
+	s.bind.mu.Lock()
+	defer s.bind.mu.Unlock()
+	if ps := s.bind.devPaths[dev]; ps != nil {
+		for _, x := range ps.list {
+			if x.dp != nil && x.dp.lastRx.Load() >= cut {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // nonceCache rejects replayed HELLOs within the accepted clock skew.
@@ -333,6 +372,7 @@ func (s *Server) hello(sock *net.UDPConn, from netip.AddrPort, k keyEntry, pt by
 	}
 	dev := cleanDeviceID(h.dev)
 	pub := base64.StdEncoding.EncodeToString(h.pub[:])
+	held := s.heardLately(dev, now)
 
 	s.mu.Lock()
 	key, ok := s.byID[k.id]
@@ -358,14 +398,17 @@ func (s *Server) hello(sock *net.UDPConn, from netip.AddrPort, k keyEntry, pt by
 	}
 	changed := false
 	if d.Public != pub {
-		if h.ts < d.KeyAt {
-			// An older connection of this device (a previous run of the
-			// app): the newer one keeps the address.
+		if held && olderRun(h, d) {
+			// An earlier run of the app on this device while the later
+			// one is still connected: the later keeps the address. Once
+			// that one is gone the run that asks gets it, whatever the
+			// clocks say (a phone stopped for good with "connected again
+			// elsewhere", Nov 2026: a run refused by mistake).
 			s.mu.Unlock()
 			reply(welcome(h.nonce, welcomeStale, nil))
 			return
 		}
-		d.Public, d.Private, d.KeyAt = pub, "", h.ts
+		d.Public, d.Private, d.KeyAt, d.RunAt = pub, "", h.ts, h.runAt
 		changed = true
 	}
 	d.LastSeen, d.Key = now.Unix(), key.ID

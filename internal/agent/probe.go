@@ -43,8 +43,14 @@ func socksDial(ctx context.Context, e *spec.EntrySpec, cmd byte, host string, po
 	if _, err := io.ReadFull(c, buf[:2]); err != nil || buf[1] != 0 {
 		return fail(errors.New("SOCKS authentication failed"))
 	}
-	req := []byte{5, cmd, 0, 3, byte(len(host))}
-	req = append(req, host...)
+	req := []byte{5, cmd, 0}
+	if ip := net.ParseIP(host).To4(); ip != nil {
+		req = append(req, 1)
+		req = append(req, ip...)
+	} else {
+		req = append(req, 3, byte(len(host)))
+		req = append(req, host...)
+	}
 	req = binary.BigEndian.AppendUint16(req, uint16(port))
 	if _, err := c.Write(req); err != nil {
 		return fail(err)
@@ -117,7 +123,10 @@ func probeXray(ctx context.Context) spec.ProbeResult {
 		return r
 	}
 	start := time.Now()
-	raw, _, err := socksDial(ctx, s.Entry, 1, "one.one.one.one", 443)
+	// By address, as clients' connections reach the chain (the entry takes
+	// them by TPROXY) and as the tunnel's check dials: a name would cost
+	// the exit a DNS lookup no client waits for.
+	raw, _, err := socksDial(ctx, s.Entry, 1, "1.1.1.1", 443)
 	if err != nil {
 		r.Error = "TCP through chain: " + err.Error()
 		if errors.Is(err, syscall.ECONNREFUSED) {

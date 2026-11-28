@@ -583,7 +583,7 @@ func (s *Server) getconf(sessionKey, body string) (string, string, bool) {
 		if err != nil {
 			return "NOCONF", "", true
 		}
-		d.Private, d.Public, d.KeyAt = priv, pub, now.UnixMilli()
+		d.Private, d.Public, d.KeyAt, d.RunAt = priv, pub, now.UnixMilli(), 0
 	}
 	d.LastSeen, d.Key = now.Unix(), k.ID
 	d.New = false

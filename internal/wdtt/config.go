@@ -189,6 +189,9 @@ type deviceState struct {
 	// KeyAt is when a TurnVK client last sent its own public key (unix
 	// ms, the client's clock); Private is then empty.
 	KeyAt int64 `json:"key_at,omitempty"`
+	// RunAt is when the run of the app that sent that key began (unix ms,
+	// the client's clock; 0 when it did not say).
+	RunAt int64 `json:"run_at,omitempty"`
 	New   bool  `json:"-"` // created and not yet given to WireGuard
 }
 

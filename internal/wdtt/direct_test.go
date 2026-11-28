@@ -309,3 +309,63 @@ func TestSessionsFilePerServer(t *testing.T) {
 		}
 	}
 }
+
+// Two runs of the app on one device: the later run (by its start) keeps the
+// device while it is connected, whatever the HELLOs' clocks say; once it is
+// gone, the run that asks gets it.
+func TestDirectRunOrder(t *testing.T) {
+	cfg := Config{MainPassword: "owner-pass", DNS: "1.1.1.1", Kind: KindTurnVK, Iface: "wdtt1", Network: "10.66.67.0/24"}
+	s, _, addr, stop := startServer(t, cfg)
+	defer stop()
+	hello := func(c *dclient, gen string, ts time.Time, runAt int64) byte {
+		t.Helper()
+		var nonce [16]byte
+		_, _ = rand.Read(nonce[:])
+		b := helloBytes(ts, nonce, c.pub, "phone", gen)
+		if runAt > 0 {
+			b[58] |= helloRunAt
+			b = binary.BigEndian.AppendUint64(b, uint64(runAt))
+		}
+		c.send(b)
+		for {
+			m := c.recv(2 * time.Second)
+			if m == nil {
+				t.Fatalf("%s: no WELCOME", gen)
+			}
+			if m[0] == msgWelcome && bytes.Equal(m[2:18], nonce[:]) {
+				return m[18]
+			}
+		}
+	}
+	now := time.Now()
+	run2 := newDClient(t, addr, "owner-pass", randKey())
+	if st := hello(run2, "run2", now, 2000); st != welcomeOK {
+		t.Fatalf("run 2: status %d", st)
+	}
+	// The earlier run's HELLO arrives later, with a fresher time stamp.
+	run1 := newDClient(t, addr, "owner-pass", randKey())
+	if st := hello(run1, "run1", now.Add(time.Second), 1000); st != welcomeStale {
+		t.Fatalf("earlier run while the later is connected: status %d", st)
+	}
+	// A later run whose clock stepped back takes over.
+	run3 := newDClient(t, addr, "owner-pass", randKey())
+	if st := hello(run3, "run3", now.Add(-time.Minute), 3000); st != welcomeOK {
+		t.Fatalf("later run, clock stepped back: status %d", st)
+	}
+	s.mu.Lock()
+	runAt := s.st.Devices["phone"].RunAt
+	s.mu.Unlock()
+	if runAt != 3000 {
+		t.Fatalf("run start kept %d", runAt)
+	}
+	// It stops (BYE): nothing holds the device, so even an earlier run with
+	// an older clock gets it.
+	run3.send([]byte{msgBye, directVersion})
+	deadline := time.Now().Add(2 * time.Second)
+	for s.heardLately("phone", time.Now()) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st := hello(run1, "run1", now.Add(-2*time.Minute), 1000); st != welcomeOK {
+		t.Fatalf("earlier run once the later is gone: status %d", st)
+	}
+}
